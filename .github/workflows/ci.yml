@@ -6,29 +6,43 @@ on:
   pull_request:
     branches: [main]
 
+# erlang_webrtc is a private repository for now: every job checks it out
+# into _checkouts, which rebar3 builds in place of the fetched
+# dependency, with the token in the ERLANG_WEBRTC_TOKEN secret (read
+# access to benoitc/erlang_webrtc). Once that repository is public the
+# secret is not needed any more.
+env:
+  ERLANG_WEBRTC_REF: feature/webrtc-stack
+  # A codec library that is missing fails the build, so no native test
+  # is skipped without notice.
+  WEBRTC_CODECS_REQUIRE: "opus;vpx;openh264;dav1d;aom"
+
 jobs:
-  test:
-    name: OTP ${{ matrix.otp }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            otp: '29'
-            rebar3: 'nightly'
+  linux:
+    name: Linux, OTP 29
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: benoitc/erlang_webrtc
+          ref: ${{ env.ERLANG_WEBRTC_REF }}
+          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
+          path: _checkouts/webrtc
 
       - name: Set up Erlang
         uses: erlef/setup-beam@v1
         with:
-          otp-version: ${{ matrix.otp }}
-          rebar3-version: ${{ matrix.rebar3 }}
+          otp-version: '29'
+          rebar3-version: 'nightly'
 
-      # The G.711 tests compare with FFmpeg and skip without it.
+      # The G.711, playback and capture tests use FFmpeg and skip without it.
       - name: Install FFmpeg and the codec libraries
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg cmake pkg-config libopus-dev libvpx-dev libopenh264-dev libdav1d-dev libaom-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg cmake pkg-config \
+            libopus-dev libvpx-dev libopenh264-dev libdav1d-dev libaom-dev
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -36,15 +50,11 @@ jobs:
           path: |
             _build
             ~/.cache/rebar3
-          key: ${{ runner.os }}-otp-${{ matrix.otp }}-${{ hashFiles('rebar.lock') }}
+          key: ${{ runner.os }}-otp-29-${{ hashFiles('rebar.lock') }}
           restore-keys: |
-            ${{ runner.os }}-otp-${{ matrix.otp }}-
+            ${{ runner.os }}-otp-29-
 
-      # A codec library that is missing fails the build here, so no native
-      # test is skipped without notice.
       - name: Compile
-        env:
-          WEBRTC_CODECS_REQUIRE: "opus;vpx;openh264;dav1d;aom"
         run: rebar3 compile
 
       - name: Check formatting
@@ -67,3 +77,64 @@ jobs:
 
       - name: Docs
         run: rebar3 ex_doc
+
+  macos:
+    name: macOS
+    needs: linux
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: benoitc/erlang_webrtc
+          ref: ${{ env.ERLANG_WEBRTC_REF }}
+          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
+          path: _checkouts/webrtc
+
+      # brew ships the current OTP; the point of this job is the
+      # platform, which the Linux job does not cover.
+      - name: Set up Erlang, FFmpeg and the codec libraries
+        run: brew install erlang rebar3 cmake pkg-config ffmpeg opus libvpx openh264 dav1d aom
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: Unit tests
+        run: rebar3 eunit
+
+      - name: Peer connection suites
+        run: rebar3 ct
+
+  freebsd:
+    name: FreeBSD
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: benoitc/erlang_webrtc
+          ref: ${{ env.ERLANG_WEBRTC_REF }}
+          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
+          path: _checkouts/webrtc
+
+      - name: Test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "15.1"
+          usesh: true
+          envs: WEBRTC_CODECS_REQUIRE
+          # The versioned Erlang package installs outside the default
+          # PATH, and the rebar3 package brings another Erlang with it.
+          prepare: |
+            pkg install -y erlang-runtime29 cmake-core pkgconf opus libvpx openh264 dav1d aom ffmpeg
+          run: |
+            export PATH="/usr/local/lib/erlang29/bin:/usr/local/bin:$PATH"
+            erl -noshell -eval 'io:format("OTP ~s~n", [erlang:system_info(otp_release)]), halt().'
+            fetch -q https://github.com/erlang/rebar3/releases/download/3.27.0/rebar3 -o rebar3
+            chmod +x rebar3
+            ./rebar3 compile
+            ./rebar3 eunit
+            ./rebar3 ct

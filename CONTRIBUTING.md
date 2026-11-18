@@ -100,6 +100,11 @@ disk. It needs `qemu`, and listens for SSH on `127.0.0.1:52222`
 
 The browser suite only runs on the machine you work on.
 
+CI runs the same on GitHub: Linux with every check, then macOS and FreeBSD
+with the tests. While erlang_webrtc is private, the jobs check it out with
+the `ERLANG_WEBRTC_TOKEN` secret of this repository, a token that can read
+`benoitc/erlang_webrtc`; without it they fail at that step.
+
 A codec gets a round trip (encode, decode, compare with
 `webrtc_codecs_pattern:psnr/2` or `snr/2`), a comparison with another
 implementation where one is at hand, and the error paths: raw media in the
