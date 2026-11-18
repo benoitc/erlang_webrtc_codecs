@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1]).
+-export([pcmu/1, pcma/1, opus/1]).
 
-all() -> [pcmu, pcma].
+all() -> [pcmu, pcma, opus].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -15,13 +15,29 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-pcmu(_Config) -> g711(<<"PCMU">>).
+pcmu(_Config) ->
+    {Sent, Received} = audio(<<"PCMU">>, 8000, <<"webrtc_codecs G.711">>, 64000),
+    ?assert(webrtc_codecs_pattern:snr(Sent, Received) > 30).
 
-pcma(_Config) -> g711(<<"PCMA">>).
+pcma(_Config) ->
+    {Sent, Received} = audio(<<"PCMA">>, 8000, <<"webrtc_codecs G.711">>, 64000),
+    ?assert(webrtc_codecs_pattern:snr(Sent, Received) > 30).
 
-%% A sends a second of tone in 20 ms frames; B gets the same samples
-%% back within G.711's precision, and both report the plugin's members.
-g711(Name) ->
+%% Opus is what two peers negotiate by default. The encoder is told the
+%% bitrate before the first samples.
+opus(_Config) ->
+    case webrtc_codecs_opus_nif:loaded() of
+        true ->
+            _ = audio(<<"opus">>, 48000, webrtc_codecs_opus_nif:version(), 24000),
+            ok;
+        false ->
+            {skip, "built without libopus"}
+    end.
+
+%% A sends a second of tone in 20 ms frames with send_media/3; B decodes
+%% as many samples with the same timestamps, and both report the
+%% plugin's members. Returns the audio sent and received.
+audio(Name, Rate, Implementation, Bitrate) ->
     Plugin = {webrtc_codecs, #{}},
     Codecs = #{
         audio => [C || #{name := N} = C <- webrtc_jsep_caps:default_codecs(audio), N =:= Name]
@@ -32,12 +48,14 @@ g711(Name) ->
     }),
     {ok, _} = webrtc:add_transceiver(A, audio, #{frames => true, codec_plugin => Plugin}),
     ok = connect(A, B),
-    Format = #{sample_rate => 8000, channels => 1},
+    Format = #{sample_rate => Rate, channels => 1},
+    Frame = Rate div 50,
     Count = 50,
+    ok = webrtc:send_media(A, <<"0">>, #{bitrate => Bitrate}),
     [
         begin
             ok = webrtc:send_media(
-                A, <<"0">>, webrtc_codecs_pattern:tone(440, 20, Format, I * 160)
+                A, <<"0">>, webrtc_codecs_pattern:tone(440, 20, Format, I * Frame)
             ),
             timer:sleep(20)
         end
@@ -46,28 +64,31 @@ g711(Name) ->
     Decoded = collect(
         B,
         fun
-            ({decoded, <<"0">>, #{samples := _}}) -> true;
+            ({decoded, <<"0">>, _}) -> true;
             (_) -> false
         end,
         Count,
         5000
     ),
-    ?assertEqual(Count, length(Decoded)),
     ?assertEqual(
-        [I * 160 || I <- lists:seq(0, Count - 1)], [T || {decoded, _, #{timestamp := T}} <- Decoded]
+        [I * Frame || I <- lists:seq(0, Count - 1)],
+        [
+            T
+         || {decoded, _, #{sample_rate := R, channels := 1, timestamp := T}} <- Decoded, R =:= Rate
+        ]
     ),
     Received = #{samples => iolist_to_binary([S || {decoded, _, #{samples := S}} <- Decoded])},
-    Sent = webrtc_codecs_pattern:tone(440, 20 * Count, Format, 0),
-    ?assert(webrtc_codecs_pattern:snr(Sent, Received) > 30),
+    ?assertEqual(Count * Frame * 2, byte_size(maps:get(samples, Received))),
     timer:sleep(200),
-    [#{targetBitrate := 64000, encoderImplementation := <<"webrtc_codecs G.711">>}] =
+    [#{targetBitrate := Bitrate, encoderImplementation := Implementation}] =
         [
             O
          || _ := #{type := <<"outbound-rtp">>, kind := <<"audio">>} = O <- webrtc:get_stats(A, #{
                 format => w3c
             })
         ],
-    [#{totalSamplesReceived := 8000, decoderImplementation := <<"webrtc_codecs G.711">>}] =
+    Total = Count * Frame,
+    [#{totalSamplesReceived := Total, decoderImplementation := Implementation}] =
         [
             O
          || _ := #{type := <<"inbound-rtp">>, kind := <<"audio">>} = O <- webrtc:get_stats(B, #{
@@ -75,7 +96,8 @@ g711(Name) ->
             })
         ],
     ok = webrtc:close(A),
-    ok = webrtc:close(B).
+    ok = webrtc:close(B),
+    {webrtc_codecs_pattern:tone(440, 20 * Count, Format, 0), Received}.
 
 %% Offer from A, answer from B, candidates relayed until both connect.
 connect(A, B) ->
