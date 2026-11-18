@@ -32,15 +32,8 @@
 }.
 
 init() ->
-    Dir =
-        case code:priv_dir(webrtc_codecs) of
-            {error, _} ->
-                filename:join(filename:dirname(filename:dirname(code:which(?MODULE))), "priv");
-            Priv ->
-                Priv
-        end,
     %% A missing or unloadable NIF leaves the stubs below in place.
-    _ = erlang:load_nif(filename:join(Dir, "webrtc_codecs_opus_nif"), 0),
+    _ = erlang:load_nif(webrtc_codecs_nif:path(?MODULE), 0),
     ok.
 
 -spec loaded() -> boolean().
