@@ -13,7 +13,7 @@
 %% The process that calls open/2 owns the port and gets its messages;
 %% it passes them to handle/2.
 
--export([open/2, handle/2, write/2, exited/1, tail/1, stop/2, run/3]).
+-export([open/2, handle/2, poll/1, write/2, exited/1, tail/1, stop/2, run/3]).
 -export([listen/0, close_listen/1]).
 
 -export_type([exec/0, ended/0, endpoint/0]).
@@ -73,6 +73,18 @@ handle({'EXIT', Port, _Reason}, #exec{port = Port} = Exec) ->
     {ok, Exec};
 handle(_Msg, _Exec) ->
     ignore.
+
+-doc "Take the messages of the program that are waiting, without waiting for more.".
+-spec poll(exec()) -> exec().
+poll(#exec{port = Port} = Exec) ->
+    receive
+        {Port, {data, Data}} -> poll(said(Data, Exec));
+        {Port, {exit_status, Status}} -> poll(Exec#exec{status = Status});
+        {'EXIT', Port, _} when Exec#exec.status =:= undefined -> poll(Exec#exec{status = -1});
+        {'EXIT', Port, _} -> poll(Exec)
+    after 0 ->
+        Exec
+    end.
 
 said(Data, #exec{tail = Tail} = Exec) ->
     All = <<Tail/binary, Data/binary>>,
@@ -245,10 +257,7 @@ listen() ->
 -spec close_listen(endpoint()) -> ok.
 close_listen(#{socket := Socket, dir := Dir}) ->
     _ = gen_tcp:close(Socket),
-    case Dir of
-        undefined -> ok;
-        _ -> _ = file:del_dir_r(Dir)
-    end,
+    _ = Dir =/= undefined andalso file:del_dir_r(Dir),
     ok.
 
 tmp_dir() ->

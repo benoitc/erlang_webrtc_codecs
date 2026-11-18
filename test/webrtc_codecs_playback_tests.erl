@@ -19,7 +19,10 @@ playback_test_() ->
                     {"audio to a file and back", fun audio_to_file/0},
                     {"another format is refused", fun bad_format/0},
                     {"FFmpeg ending by itself is told", fun ended/0},
-                    {"bad options", fun bad_options/0}
+                    {"bad options", fun bad_options/0},
+                    {"a program that stops reading is killed", fun never_read/0},
+                    {"a program that does not finish is killed", fun ignore_eof/0},
+                    {"stop returns when nothing was played", fun stop_unread/0}
                 ]
             ]
     end.
@@ -124,7 +127,8 @@ ended() ->
     ?assertMatch({error, {ended, Status, <<_/binary>>}} when Status =/= 0, Result),
     {error, {ended, _, Said}} = Result,
     ?assertNotEqual(nomatch, binary:match(Said, <<"No such file">>)),
-    ok = ?M:stop(Sink).
+    %% And stop/1 does not say the file is there.
+    ?assertMatch({error, {not_finalized, Status, <<_/binary>>}} when Status =/= 0, ?M:stop(Sink)).
 
 until_ended(_Sink, _Picture, 0) ->
     timeout;
@@ -136,6 +140,76 @@ until_ended(Sink, Picture, Tries) ->
             timer:sleep(20),
             until_ended(Sink, Picture, Tries - 1)
     end.
+
+%% A file sink of the program that stands in for FFmpeg, in a mode.
+fake(Mode, Opts) ->
+    Fake = filename:join([webrtc_codecs_test_media:root(), "test", "fake_ffmpeg.escript"]),
+    PidFile = string:trim(os:cmd("mktemp")),
+    {ok, Sink} = ?M:start({file, video, "none.y4m"}, Opts#{
+        ffmpeg => Fake,
+        width => 64,
+        height => 48,
+        output_options => ["-mode", Mode, "-pidfile", PidFile]
+    }),
+    {Sink, PidFile}.
+
+os_pid(PidFile) -> os_pid(PidFile, 100).
+
+os_pid(PidFile, Tries) ->
+    case file:read_file(PidFile) of
+        {ok, <<_, _/binary>> = Text} ->
+            _ = file:delete(PidFile),
+            binary_to_list(Text);
+        _ when Tries > 0 ->
+            timer:sleep(50),
+            os_pid(PidFile, Tries - 1)
+    end.
+
+alive(OsPid) ->
+    os:cmd("kill -0 " ++ OsPid ++ " 2>/dev/null && echo alive") =/= "".
+
+%% The program connects and reads nothing. Once what the socket holds is
+%% full, play/2 fails within write_timeout instead of waiting for ever,
+%% the program is killed, and the sink still answers.
+never_read() ->
+    {Sink, PidFile} = fake("never_read", #{write_timeout => 500}),
+    OsPid = os_pid(PidFile),
+    Picture = ?P:picture(64, 48, 0),
+    T0 = erlang:monotonic_time(millisecond),
+    Stalled = fun Play(N) when N > 0 ->
+        case ?M:play(Sink, Picture) of
+            ok -> Play(N - 1);
+            Other -> Other
+        end
+    end,
+    ?assertEqual({error, stalled}, Stalled(100000)),
+    ?assert(erlang:monotonic_time(millisecond) - T0 < 20000),
+    ?assertNot(alive(OsPid)),
+    %% At once from now on, and the sink is not stuck.
+    ?assertEqual({error, stalled}, ?M:play(Sink, Picture)),
+    ?assertMatch(#{played := Played} when Played > 0, ?M:stats(Sink)),
+    ?assertMatch({error, {not_finalized, killed, _}}, ?M:stop(Sink)),
+    ?assertNot(is_process_alive(Sink)).
+
+%% The program reads everything, then neither finishes nor ends when
+%% asked: stop/1 returns after finish_timeout, says the file is not
+%% finished, and the program is gone.
+ignore_eof() ->
+    {Sink, PidFile} = fake("ignore_eof", #{finish_timeout => 500}),
+    OsPid = os_pid(PidFile),
+    [ok = ?M:play(Sink, ?P:picture(64, 48, N)) || N <- lists:seq(0, 2)],
+    T0 = erlang:monotonic_time(millisecond),
+    ?assertMatch({error, {not_finalized, killed, _}}, ?M:stop(Sink)),
+    Elapsed = erlang:monotonic_time(millisecond) - T0,
+    ?assert(Elapsed >= 500 andalso Elapsed < 8000),
+    ?assertNot(alive(OsPid)).
+
+%% Nothing played, a program that reads nothing: stop/1 still returns.
+stop_unread() ->
+    {Sink, PidFile} = fake("never_read", #{finish_timeout => 500}),
+    OsPid = os_pid(PidFile),
+    ?assertMatch({error, {not_finalized, killed, _}}, ?M:stop(Sink)),
+    ?assertNot(alive(OsPid)).
 
 bad_options() ->
     process_flag(trap_exit, true),

@@ -473,15 +473,11 @@ handle_cast(_Msg, St) ->
     {noreply, St}.
 
 -doc false.
-handle_info(accept, #st{listen = #{socket := Listening} = Listen, socket = undefined} = St) ->
-    case gen_tcp:accept(Listening, 0) of
-        {ok, Socket} ->
-            ok = webrtc_codecs_exec:close_listen(Listen),
-            _ = inet:setopts(Socket, [
-                {recbuf, ?SOCKET_BUFFER}, {buffer, ?SOCKET_BUFFER}, {active, once}
-            ]),
-            {noreply, St#st{listen = undefined, socket = Socket}};
-        {error, timeout} ->
+handle_info(accept, #st{listen = Listen, socket = undefined} = St) when Listen =/= undefined ->
+    case accept(St) of
+        {ok, St1} ->
+            {noreply, St1};
+        none ->
             %% Polled, so that stop and the end of the owner are served
             %% while a device takes its time to open.
             _ = erlang:send_after(?ACCEPT_MS, self(), accept),
@@ -523,15 +519,38 @@ handle_info(_Info, St) ->
 %% The capture is over when FFmpeg has ended and everything it wrote has
 %% been read. What it wrote may still be on its way when its end is
 %% known, and it may close its output before it ends.
+ended(#st{exec = Exec, socket = undefined, listen = Listen} = St) when Listen =/= undefined ->
+    %% FFmpeg may have connected, written and ended before its
+    %% connection was taken: what it wrote is still to read.
+    case {webrtc_codecs_exec:exited(Exec), accept(St)} of
+        {_, {ok, St1}} -> {noreply, St1};
+        {{true, _}, _} -> finish(result(webrtc_codecs_exec:stop(Exec, 0)), St#st{exec = undefined});
+        {false, _} -> {noreply, St}
+    end;
 ended(#st{exec = Exec, socket = Socket} = St) ->
     case {webrtc_codecs_exec:exited(Exec), Socket} of
-        {{true, _}, S} when S =:= closed; S =:= undefined ->
+        {{true, _}, closed} ->
             finish(result(webrtc_codecs_exec:stop(Exec, 0)), St#st{exec = undefined});
         {{true, _}, _} ->
             {noreply, St};
         {false, _} ->
             _ = erlang:send_after(?LINGER_MS, self(), linger),
             {noreply, St}
+    end.
+
+%% Take the connection of FFmpeg if it has made it.
+accept(#st{listen = #{socket := Listening} = Listen} = St) ->
+    case gen_tcp:accept(Listening, 0) of
+        {ok, Socket} ->
+            ok = webrtc_codecs_exec:close_listen(Listen),
+            _ = inet:setopts(Socket, [
+                {recbuf, ?SOCKET_BUFFER}, {buffer, ?SOCKET_BUFFER}, {active, once}
+            ]),
+            {ok, St#st{listen = undefined, socket = Socket}};
+        {error, timeout} ->
+            none;
+        {error, _} = Error ->
+            Error
     end.
 
 result({exited, 0, _Said}) -> eof;
