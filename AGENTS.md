@@ -118,6 +118,11 @@ that loads without it: `loaded/0` is then false and the codec is not listed.
 `WEBRTC_CODECS_REQUIRE="opus;vpx;dav1d;aom"` fails the build when a library is missing,
 `WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
+**Devices:** `webrtc_codecs_capture.erl`, a process that owns an `ffmpeg`
+port reading a camera, a microphone, a file or a generated source and sends
+raw media to its owner, dropping when the owner is behind. Devices never go
+through a NIF.
+
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR
 and SNR).
 

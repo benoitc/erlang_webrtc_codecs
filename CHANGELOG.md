@@ -17,5 +17,8 @@
   in-band FEC or concealed, and the encoder follows the bitrate and the
   packet loss you pass it.
 - G.711 (PCMU and PCMA) decoding and encoding, with no native library.
+- Capture of raw pictures and audio from a camera, a microphone, a file or
+  a generated test source, by running FFmpeg outside the VM. A slow reader
+  loses frames instead of growing memory.
 - A test picture and a test tone to feed an encoder without a camera or a
   microphone, and PSNR and SNR to compare what comes back.

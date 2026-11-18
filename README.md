@@ -13,7 +13,8 @@ media itself, rather than forward it.
 | AV1 (main profile) | yes | yes | dav1d (decode), libaom (encode) |
 | G.711 (PCMU, PCMA) | yes | yes | nothing, pure Erlang |
 
-H.264 and device capture are not there yet.
+It also captures raw pictures and audio from a camera, a microphone or a
+file, through the `ffmpeg` executable. H.264 and playback are not there yet.
 
 ## Build and test
 
@@ -70,6 +71,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [AV1](docs/av1.md)
 - [Opus](docs/opus.md)
 - [G.711](docs/g711.md)
+- [Capture from a camera or a microphone](docs/capture.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md), and issues met in erlang_webrtc
 - [Contributing](CONTRIBUTING.md)
 
