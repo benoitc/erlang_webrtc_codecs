@@ -64,6 +64,18 @@ rebar3 ex_doc
   plugins inside two erlang_webrtc peer connections on loopback, run by
   `rebar3 ct`.
 
+`webrtc_codecs_browser_SUITE` runs the video plugins against headless
+Chromium, both ways. It uses the browser peer of erlang_webrtc's interop
+suite, which this package does not carry:
+
+```bash
+cd ../erlang_webrtc/interop/browser && npm ci && npx playwright install chromium
+export WEBRTC_CODECS_BROWSER_PEER=$PWD
+```
+
+Without it, or without node, the suite skips itself with the reason. It
+looks in `../erlang_webrtc/interop/browser` when the variable is not set.
+
 A codec gets a round trip (encode, decode, compare with
 `webrtc_codecs_pattern:psnr/2` or `snr/2`), a comparison with another
 implementation where one is at hand, and the error paths: raw media in the

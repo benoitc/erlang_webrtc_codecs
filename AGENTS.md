@@ -151,8 +151,12 @@ What `decode/2` gives and `encode/2` takes, see
   (round trip, bitrate, key frames, damaged and oversized frames, random
   input); `test/webrtc_codecs_test_media.erl` reads the frame corpus of
   erlang_webrtc and uses FFmpeg as a reference decoder.
-- `test/webrtc_codecs_*_SUITE.erl`: Common Test, the plugins inside two
-  erlang_webrtc peer connections on loopback.
+- `test/webrtc_codecs_peer_SUITE.erl`: Common Test, the plugins and the
+  captures inside two erlang_webrtc peer connections on loopback.
+- `test/webrtc_codecs_browser_SUITE.erl`: the video plugins against headless
+  Chromium, both ways, through the browser peer of erlang_webrtc's interop
+  suite. It skips itself when that peer is not installed, which is the case
+  in CI.
 
 ## Linting Notes
 
