@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1]).
+-export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1]).
 
-all() -> [pcmu, pcma, opus].
+all() -> [pcmu, pcma, opus, vp8, vp9].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -98,6 +98,93 @@ audio(Name, Rate, Implementation, Bitrate) ->
     ok = webrtc:close(A),
     ok = webrtc:close(B),
     {webrtc_codecs_pattern:tone(440, 20 * Count, Format, 0), Received}.
+
+vp8(_Config) -> vpx(<<"VP8">>).
+
+vp9(_Config) -> vpx(<<"VP9">>).
+
+vpx(Name) ->
+    case webrtc_codecs_vpx_nif:loaded() of
+        true -> video(Name, <<"libvpx ", (webrtc_codecs_vpx_nif:version())/binary>>);
+        false -> {skip, "built without libvpx"}
+    end.
+
+%% A encodes a second of the test pattern with send_media/3; B decodes
+%% every picture, close to what was sent, and the frames encoded and
+%% decoded agree in the statistics of both.
+video(Name, Implementation) ->
+    Plugin = {webrtc_codecs, #{bitrate => 400000}},
+    Codecs = #{
+        video => [C || #{name := N} = C <- webrtc_jsep_caps:default_codecs(video), N =:= Name]
+    },
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{
+        loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
+    }),
+    {ok, _} = webrtc:add_transceiver(A, video, #{frames => true, codec_plugin => Plugin}),
+    ok = connect(A, B),
+    Count = 30,
+    [
+        begin
+            ok = webrtc:send_media(A, <<"0">>, webrtc_codecs_pattern:picture(320, 240, I)),
+            timer:sleep(33)
+        end
+     || I <- lists:seq(0, Count - 1)
+    ],
+    Decoded = collect(
+        B,
+        fun
+            ({decoded, <<"0">>, _}) -> true;
+            (_) -> false
+        end,
+        Count,
+        5000
+    ),
+    ?assertEqual(
+        [I * 3000 || I <- lists:seq(0, Count - 1)],
+        [
+            T
+         || {decoded, _, #{format := i420, width := 320, height := 240, timestamp := T}} <- Decoded
+        ]
+    ),
+    [
+        ?assert(
+            webrtc_codecs_pattern:psnr(webrtc_codecs_pattern:picture(320, 240, T div 3000), Picture) >
+                30
+        )
+     || {decoded, _, #{timestamp := T} = Picture} <- Decoded
+    ],
+    timer:sleep(200),
+    [
+        #{
+            framesEncoded := Count,
+            keyFramesEncoded := 1,
+            targetBitrate := 400000,
+            encoderImplementation := Implementation
+        }
+    ] =
+        [
+            O
+         || _ := #{type := <<"outbound-rtp">>, kind := <<"video">>} = O <- webrtc:get_stats(A, #{
+                format => w3c
+            })
+        ],
+    [
+        #{
+            framesDecoded := Count,
+            keyFramesDecoded := 1,
+            framesReceived := Count,
+            decoderImplementation := Implementation
+        }
+    ] =
+        [
+            O
+         || _ := #{type := <<"inbound-rtp">>, kind := <<"video">>} = O <- webrtc:get_stats(B, #{
+                format => w3c
+            })
+        ],
+    ok = webrtc:close(A),
+    ok = webrtc:close(B).
 
 %% Offer from A, answer from B, candidates relayed until both connect.
 connect(A, B) ->
