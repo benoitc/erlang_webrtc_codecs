@@ -90,7 +90,8 @@ round_trip(#{mod := Mod, implementation := Implementation} = Ctx) ->
     ?assertEqual([N * 3000 || N <- lists:seq(0, 29)], [T || #{timestamp := T} <- Frames]),
     ?assertMatch(#{framesEncoded := 30, keyFramesEncoded := 1, targetBitrate := 500000}, EncStats),
     ?assert(maps:get(totalEncodeTime, EncStats) > 0),
-    ?assert(maps:get(qpSum, EncStats) > 0),
+    %% Not every library tells the quantizer.
+    ?assertEqual(maps:get(qp, Ctx, true), maps:get(qpSum, EncStats, 0) > 0),
     {Pictures, DecStats, Dec} = ?T:decode_all(Mod, Frames, init(Ctx, #{})),
     ?assertMatch(#{framesDecoded := 30, keyFramesDecoded := 1}, DecStats),
     [
@@ -158,7 +159,8 @@ new_size(#{mod := Mod} = Ctx) ->
     {ok, [#{keyframe := false}], _, _} = Mod:encode(?P:picture(176, 144, 3), St2),
     {ok, [#{width := 176, height := 144}], _, _} = Mod:decode(Frame, init(Ctx, #{})).
 
-%% Odd sizes round the chroma planes up.
+%% Odd sizes round the chroma planes up. A library that only takes even
+%% sizes refuses the picture rather than cut it.
 odd_size(#{mod := Mod} = Ctx) ->
     Picture = #{
         format => i420,
@@ -169,11 +171,16 @@ odd_size(#{mod := Mod} = Ctx) ->
         v => binary:copy(<<160>>, 17 * 9),
         timestamp => 0
     },
-    {ok, [Frame], _, _} = Mod:encode(Picture, init(Ctx, #{})),
-    {ok, [#{width := 33, height := 17, y := Y, u := U, v := V}], _, _} = Mod:decode(
-        Frame, init(Ctx, #{})
-    ),
-    ?assertEqual({33 * 17, 17 * 9, 17 * 9}, {byte_size(Y), byte_size(U), byte_size(V)}).
+    case maps:get(odd_sizes, Ctx, true) of
+        true ->
+            {ok, [Frame], _, _} = Mod:encode(Picture, init(Ctx, #{})),
+            {ok, [#{width := 33, height := 17, y := Y, u := U, v := V}], _, _} = Mod:decode(
+                Frame, init(Ctx, #{})
+            ),
+            ?assertEqual({33 * 17, 17 * 9, 17 * 9}, {byte_size(Y), byte_size(U), byte_size(V)});
+        false ->
+            ?assertMatch({error, {_, odd_size}}, Mod:encode(Picture, init(Ctx, #{})))
+    end.
 
 %% A frame cut short is dropped and said so, then frames are dropped
 %% until a key frame, which decodes.

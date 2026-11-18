@@ -13,11 +13,11 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([vp8/1, vp9/1, av1/1]).
+-export([vp8/1, vp9/1, av1/1, h264/1]).
 
 -define(MID, <<"0">>).
 
-all() -> [vp8, vp9, av1].
+all() -> [vp8, vp9, av1, h264].
 
 init_per_suite(Config) ->
     case adapter() of
@@ -75,6 +75,8 @@ av1(Config) ->
     both_ways(
         Config, <<"AV1">>, webrtc_codecs_dav1d_nif:loaded() andalso webrtc_codecs_aom_nif:loaded()
     ).
+
+h264(Config) -> both_ways(Config, <<"H264">>, webrtc_codecs_openh264_nif:loaded()).
 
 both_ways(_Config, Codec, false) ->
     {skip, "built without the library of " ++ binary_to_list(Codec)};

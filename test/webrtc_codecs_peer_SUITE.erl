@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, capture/1, capture_encoded/1]).
+-export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, h264/1, capture/1, capture_encoded/1]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9, av1, capture, capture_encoded].
+all() -> [pcmu, pcma, opus, vp8, vp9, av1, h264, capture, capture_encoded].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -110,6 +110,15 @@ vpx(Name) ->
             video(Name, Implementation, Implementation);
         false ->
             {skip, "built without libvpx"}
+    end.
+
+h264(_Config) ->
+    case webrtc_codecs_openh264_nif:loaded() of
+        true ->
+            Implementation = <<"OpenH264 ", (webrtc_codecs_openh264_nif:version())/binary>>,
+            video(<<"H264">>, Implementation, Implementation);
+        false ->
+            {skip, "built without OpenH264"}
     end.
 
 av1(_Config) ->

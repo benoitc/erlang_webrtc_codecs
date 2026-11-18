@@ -84,7 +84,9 @@ key frame with `webrtc:request_keyframe/2`.
 
 %% One module per codec family. Each exports codecs/0, the codecs it can
 %% run in this build (none when its native library is missing).
--define(MODULES, [webrtc_codecs_opus, webrtc_codecs_g711, webrtc_codecs_vpx, webrtc_codecs_av1]).
+-define(MODULES, [
+    webrtc_codecs_opus, webrtc_codecs_g711, webrtc_codecs_vpx, webrtc_codecs_h264, webrtc_codecs_av1
+]).
 
 -doc "The codecs this build can decode or encode.".
 -spec available() -> [codec_info()].
