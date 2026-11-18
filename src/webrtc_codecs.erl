@@ -27,8 +27,9 @@ negotiated codec in both directions.
 
 -doc """
 A raw picture: I420 planes without padding, so `y` is `width * height`
-bytes and `u` and `v` are `(width div 2) * (height div 2)` each. Width
-and height are even. `timestamp` is in 90 kHz units.
+bytes and `u` and `v` are a quarter of that each. When the width or the
+height is odd, the chroma planes round it up: `((width + 1) div 2) *
+((height + 1) div 2)` bytes. `timestamp` is in 90 kHz units.
 
 To an encoder, `keyframe => true` asks for a key frame (set it after
 `{keyframe_request, Mid}`) and `bitrate` sets the target in bits per
@@ -83,7 +84,7 @@ key frame with `webrtc:request_keyframe/2`.
 
 %% One module per codec family. Each exports codecs/0, the codecs it can
 %% run in this build (none when its native library is missing).
--define(MODULES, [webrtc_codecs_opus, webrtc_codecs_g711]).
+-define(MODULES, [webrtc_codecs_opus, webrtc_codecs_g711, webrtc_codecs_vpx]).
 
 -doc "The codecs this build can decode or encode.".
 -spec available() -> [codec_info()].
