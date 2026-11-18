@@ -15,7 +15,8 @@ media itself, rather than forward it.
 
 It also captures raw pictures and audio from a camera, a microphone or a
 file, and shows, plays or records what is decoded, through the `ffmpeg` and
-`ffplay` executables. H.264 is not there yet.
+`ffplay` executables. FFmpeg can also encode what it captures, which is the
+way to send H.264 for now: an H.264 plugin is not there yet.
 
 ## Build and test
 

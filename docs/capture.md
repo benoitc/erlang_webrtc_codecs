@@ -66,6 +66,45 @@ receive
 end.
 ```
 
+## Capture and encode in FFmpeg
+
+With `encode`, FFmpeg encodes the video as well and you get encoded frames
+to give to `webrtc:send_frame/4`. No codec plugin is needed on the sending
+side, and FFmpeg's hardware encoders can be used. This is also the way to
+send H.264 without a plugin.
+
+```erlang
+{ok, _} = webrtc:add_transceiver(Pc, video, #{}),
+{ok, Camera} = webrtc_codecs_capture:start({camera, 0}, #{
+    width => 640,
+    height => 480,
+    encode => #{codec => vp8, bitrate => 1000000}
+}),
+
+loop(Pc, Mid, Camera) ->
+    receive
+        {webrtc_capture, Camera, #{data := Frame, timestamp := Ts, keyframe := Key}} ->
+            ok = webrtc:send_frame(Pc, Mid, Frame, #{timestamp => Ts, keyframe => Key}),
+            loop(Pc, Mid, Camera);
+        {webrtc, Pc, _Event} ->
+            loop(Pc, Mid, Camera)
+    end.
+```
+
+| `encode` key | Default | Meaning |
+|---|---|---|
+| `codec` | required | `vp8`, `vp9`, `av1` or `h264`: the codec that was negotiated |
+| `bitrate` | `1000000` | Bits per second |
+| `keyframe_interval` | `60` | Frames between two key frames |
+| `encoder` | `libvpx`, `libvpx-vp9`, `libsvtav1`; for H.264 `h264_videotoolbox` on macOS, `libopenh264` elsewhere | FFmpeg encoder |
+| `encoder_options` | real time settings of the default encoders | FFmpeg options for the encoder |
+
+What you give up compared with a plugin: FFmpeg cannot be told a new
+bitrate or asked for a key frame while it runs. The bitrate stays the one
+you start with, and a peer that loses a frame waits for the next periodic
+key frame, so keep `keyframe_interval` short. To follow the network, capture
+raw pictures and let a plugin encode.
+
 ## Stop
 
 ```erlang
@@ -96,6 +135,14 @@ ends, after sending `eof` or `{error, Reason}`.
   messages waiting, of any kind, what is captured is dropped and counted in
   `webrtc_codecs_capture:stats/1`. An owner that also owns the peer
   connection has to read its `{webrtc, Pc, _}` events too.
+- When an encoded frame is dropped, the frames after it are dropped too, up
+  to the next key frame, since they could not be decoded.
+- H.264 comes as access units in Annex B, each with its delimiter, one frame
+  later than it was encoded: a unit is known to be complete when the next
+  one starts.
+- The encoder has to be in your FFmpeg: `ffmpeg -encoders` lists them. An
+  FFmpeg built with libx264 is under the GPL; `h264_videotoolbox`,
+  `libopenh264` and the hardware encoders are not.
 - A dropped picture keeps its place in the timestamps. Audio has no
   timestamp: the encoder counts the samples it is given.
 - macOS asks for camera and microphone access the first time; the terminal

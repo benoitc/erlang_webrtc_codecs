@@ -120,7 +120,8 @@ that loads without it: `loaded/0` is then false and the codec is not listed.
 
 **Devices and files:** `webrtc_codecs_capture.erl`, a process that owns an
 `ffmpeg` port reading a camera, a microphone, a file or a generated source
-and sends raw media to its owner, dropping when the owner is behind.
+and sends raw media, or with `encode` frames FFmpeg encoded, to its owner,
+dropping when the owner is behind.
 `webrtc_codecs_playback.erl`, a process that owns an `ffplay` or `ffmpeg`
 port and writes raw media to a window, the speaker or a file.
 `webrtc_codecs_file.erl` reads and writes IVF and WAV in Erlang. Devices

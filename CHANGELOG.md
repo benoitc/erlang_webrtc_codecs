@@ -20,6 +20,9 @@
 - Capture of raw pictures and audio from a camera, a microphone, a file or
   a generated test source, by running FFmpeg outside the VM. A slow reader
   loses frames instead of growing memory.
+- Capture and encoding in FFmpeg in one go, giving encoded VP8, VP9, AV1 or
+  H.264 frames to send without a codec plugin, with FFmpeg's hardware
+  encoders if you want. The bitrate is fixed and key frames are periodic.
 - Playback of decoded pictures in a window and of decoded audio on the
   speaker, and recording of either to any file FFmpeg writes.
 - Reading and writing of IVF and WAV files.
