@@ -33,7 +33,9 @@ Options:
 
 -export([codecs/0]).
 -export([init/3, decode/2, encode/2, info/1]).
--export([nal_units/1, sps_size/1]).
+-export([nal_units/1, sps_info/1]).
+
+-export_type([sps_info/0]).
 %% webrtc_codecs_video callbacks
 -export([
     frame_info/2,
@@ -47,6 +49,9 @@ Options:
 
 -define(NAL_IDR, 5).
 -define(NAL_SPS, 7).
+-define(NAL_SUBSET_SPS, 15).
+%% profile_idc of what OpenH264 decodes: baseline, main, extended, high.
+-define(PROFILES, [66, 77, 88, 100]).
 
 -doc false.
 codecs() ->
@@ -104,25 +109,37 @@ nal_units(Data) ->
     ].
 
 -doc """
-The picture size a sequence parameter set declares (ITU-T H.264 section
-7.3.2.1.1), cropping applied; `error` when it cannot be read.
+What a sequence parameter set declares (ITU-T H.264 section 7.3.2.1.1):
+its id, its profile, the size of the pictures as they are coded (whole
+macroblocks, which is what a decoder allocates) and as they are shown
+(cropping applied).
 """.
--spec sps_size(binary()) -> {ok, pos_integer(), pos_integer()} | error.
-sps_size(<<_Header, Rbsp0/binary>>) ->
+-type sps_info() :: #{
+    id := non_neg_integer(),
+    profile := byte(),
+    coded := {pos_integer(), pos_integer()},
+    cropped := {pos_integer(), pos_integer()}
+}.
+
+-doc "Read a sequence parameter set, a NAL unit of type 7; `error` when it cannot be read.".
+-spec sps_info(binary()) -> {ok, sps_info()} | error.
+sps_info(<<_Header, Rbsp0/binary>>) ->
     %% Without the emulation prevention bytes (section 7.4.1).
     Rbsp = binary:replace(Rbsp0, <<0, 0, 3>>, <<0, 0>>, [global]),
     try sps(Rbsp) of
-        {W, H} when W > 0, H > 0 -> {ok, W, H};
-        _ -> error
+        #{coded := {Cw, Ch}, cropped := {W, H}} = Info when W > 0, H > 0, W =< Cw, H =< Ch ->
+            {ok, Info};
+        _ ->
+            error
     catch
         %% Cut short, or not the syntax of a parameter set.
         error:_ -> error
     end;
-sps_size(_) ->
+sps_info(_) ->
     error.
 
 sps(<<Profile, _Constraints, _Level, B0/bits>>) ->
-    {_Id, B1} = ue(B0),
+    {Id, B1} = ue(B0),
     {Chroma, B2} = sps_format(Profile, B1),
     {_Log2MaxFrameNum, B3} = ue(B2),
     B4 = sps_order(ue(B3)),
@@ -157,10 +174,10 @@ sps(<<Profile, _Constraints, _Level, B0/bits>>) ->
             2 -> {2, Fields};
             3 -> {1, Fields}
         end,
-    {
-        (WidthMbs + 1) * 16 - UnitX * (Left + Right),
-        Fields * (HeightUnits + 1) * 16 - UnitY * (Top + Bottom)
-    }.
+    Coded = {(WidthMbs + 1) * 16, Fields * (HeightUnits + 1) * 16},
+    {CodedWidth, CodedHeight} = Coded,
+    Cropped = {CodedWidth - UnitX * (Left + Right), CodedHeight - UnitY * (Top + Bottom)},
+    #{id => Id, profile => Profile, coded => Coded, cropped => Cropped}.
 
 %% The chroma format, which only the high profiles write, with their bit
 %% depths and scaling lists.
@@ -265,24 +282,41 @@ se(B0) ->
 
 %% webrtc_codecs_video callbacks
 
-%% A key frame is an access unit with an IDR slice. The size comes from
-%% its sequence parameter set when there is one that can be read;
-%% OpenH264 itself decodes nothing larger than 4096 x 2304.
+%% A key frame is an access unit with an IDR slice.
+%%
+%% Every sequence parameter set of the unit is read, whatever the unit
+%% holds besides: OpenH264 keeps each one it is given and allocates for
+%% the one a later slice selects. The size reported is the largest coded
+%% size among them, so webrtc_codecs_video refuses the unit when any is
+%% over the limit, and a set that cannot be read, of a profile OpenH264
+%% does not decode, or of an extension (a subset set) refuses it too.
+%% No parameter set reaches the library unchecked.
 -doc false.
 frame_info(h264, Frame) ->
     Units = nal_units(Frame),
-    case {Units, lists:keymember(?NAL_IDR, 1, Units), lists:keyfind(?NAL_SPS, 1, Units)} of
+    Kind =
+        case lists:keymember(?NAL_IDR, 1, Units) of
+            true -> key;
+            false -> inter
+        end,
+    Sets = [sps_info(Sps) || {?NAL_SPS, Sps} <- Units],
+    Readable = lists:all(
+        fun
+            ({ok, #{profile := Profile}}) -> lists:member(Profile, ?PROFILES);
+            (error) -> false
+        end,
+        Sets
+    ),
+    case {Units, Readable andalso not lists:keymember(?NAL_SUBSET_SPS, 1, Units), Sets} of
         {[], _, _} ->
             {error, invalid_frame};
-        {_, true, {_, Sps}} ->
-            case sps_size(Sps) of
-                {ok, W, H} -> {key, W, H};
-                error -> key
-            end;
-        {_, true, false} ->
-            key;
         {_, false, _} ->
-            inter
+            {error, unsupported_parameter_set};
+        {_, true, []} ->
+            Kind;
+        {_, true, _} ->
+            {_, {W, H}} = lists:max([{Cw * Ch, Coded} || {ok, #{coded := {Cw, Ch} = Coded}} <- Sets]),
+            {Kind, W, H}
     end.
 
 -doc false.
