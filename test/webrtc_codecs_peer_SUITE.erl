@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1]).
+-export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, capture/1]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9, av1].
+all() -> [pcmu, pcma, opus, vp8, vp9, av1, capture].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -198,6 +198,88 @@ video(Name, Encoder, Decoder) ->
         ],
     ok = webrtc:close(A),
     ok = webrtc:close(B).
+
+%% Capture to a peer: pictures and audio from FFmpeg's test sources go
+%% to send_media/3 as they come, are encoded by the plugins (VP8 and
+%% G.711, which needs no library) and decoded by the other peer.
+capture(_Config) ->
+    case {os:find_executable("ffmpeg"), webrtc_codecs_vpx_nif:loaded()} of
+        {false, _} -> {skip, "no ffmpeg"};
+        {_, false} -> {skip, "built without libvpx"};
+        _ -> capture()
+    end.
+
+capture() ->
+    Plugin = {webrtc_codecs, #{}},
+    Codecs = #{
+        audio => only(<<"PCMU">>, webrtc_jsep_caps:default_codecs(audio)),
+        video => only(<<"VP8">>, webrtc_jsep_caps:default_codecs(video))
+    },
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{
+        loopback => true,
+        codecs => Codecs,
+        frames => true,
+        codec_plugins => #{audio => Plugin, video => Plugin}
+    }),
+    {ok, _} = webrtc:add_transceiver(A, audio, #{frames => true, codec_plugin => Plugin}),
+    {ok, _} = webrtc:add_transceiver(A, video, #{frames => true, codec_plugin => Plugin}),
+    ok = connect(A, B),
+    {ok, Camera} = webrtc_codecs_capture:start({test, video}, #{
+        width => 320, height => 240, frame_rate => 30
+    }),
+    {ok, Microphone} = webrtc_codecs_capture:start({test, audio}, #{sample_rate => 8000}),
+    Mids = #{Microphone => <<"0">>, Camera => <<"1">>},
+    Deadline = erlang:monotonic_time(millisecond) + 1000,
+    {Sent, Decoded0} = forward(A, B, Mids, #{Camera => 0, Microphone => 0}, [], Deadline),
+    ok = webrtc_codecs_capture:stop(Camera),
+    ok = webrtc_codecs_capture:stop(Microphone),
+    #{Camera := Pictures, Microphone := Chunks} = Sent,
+    ?assert(Pictures >= 20),
+    ?assert(Chunks >= 40),
+    Decoded =
+        Decoded0 ++
+            collect(
+                B,
+                fun
+                    ({decoded, _, _}) -> true;
+                    (_) -> false
+                end,
+                Pictures + Chunks - length(Decoded0),
+                3000
+            ),
+    ?assertEqual(
+        Pictures,
+        length([
+            P
+         || {decoded, <<"1">>, #{format := i420, width := 320, height := 240} = P} <- Decoded
+        ])
+    ),
+    ?assertEqual(
+        Chunks,
+        length([C || {decoded, <<"0">>, #{format := s16le, sample_rate := 8000} = C} <- Decoded])
+    ),
+    ok = webrtc:close(A),
+    ok = webrtc:close(B).
+
+%% Give what the captures send to send_media/3 until the deadline, and
+%% read the events of the peers as they come: a capture drops what its
+%% owner leaves waiting. Returns the count per capture and what B
+%% decoded so far.
+forward(A, B, Mids, Counts, Decoded, Deadline) ->
+    receive
+        {webrtc_capture, Pid, #{format := _} = Raw} when is_map_key(Pid, Mids) ->
+            ok = webrtc:send_media(A, maps:get(Pid, Mids), Raw),
+            forward(
+                A, B, Mids, maps:update_with(Pid, fun(N) -> N + 1 end, Counts), Decoded, Deadline
+            );
+        {webrtc, B, {decoded, _, _} = Event} ->
+            forward(A, B, Mids, Counts, [Event | Decoded], Deadline);
+        {webrtc, _, _} ->
+            forward(A, B, Mids, Counts, Decoded, Deadline)
+    after max(0, Deadline - erlang:monotonic_time(millisecond)) ->
+        {Counts, lists:reverse(Decoded)}
+    end.
 
 %% One codec of a list, with its retransmission format (RFC 4588).
 only(Name, Codecs) ->
