@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, capture/1]).
+-export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, capture/1, capture_encoded/1]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9, av1, capture].
+all() -> [pcmu, pcma, opus, vp8, vp9, av1, capture, capture_encoded].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -279,6 +279,68 @@ forward(A, B, Mids, Counts, Decoded, Deadline) ->
             forward(A, B, Mids, Counts, Decoded, Deadline)
     after max(0, Deadline - erlang:monotonic_time(millisecond)) ->
         {Counts, lists:reverse(Decoded)}
+    end.
+
+%% Capture and encode in FFmpeg, then send_frame/4: no plugin on the
+%% sending side. The other peer decodes the frames with its plugin.
+capture_encoded(_Config) ->
+    Vp8 = string:find(os:cmd("ffmpeg -hide_banner -encoders 2>/dev/null"), " libvpx ") =/= nomatch,
+    case {Vp8, webrtc_codecs_vpx_nif:loaded()} of
+        {false, _} -> {skip, "no ffmpeg with libvpx"};
+        {_, false} -> {skip, "built without libvpx"};
+        _ -> capture_encoded()
+    end.
+
+capture_encoded() ->
+    Codecs = #{video => only(<<"VP8">>, webrtc_jsep_caps:default_codecs(video))},
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{
+        loopback => true,
+        codecs => Codecs,
+        frames => true,
+        codec_plugins => #{video => {webrtc_codecs, #{}}}
+    }),
+    {ok, _} = webrtc:add_transceiver(A, video, #{}),
+    ok = connect(A, B),
+    {ok, Camera} = webrtc_codecs_capture:start({test, video}, #{
+        width => 320, height => 240, frame_rate => 30, encode => #{codec => vp8, bitrate => 400000}
+    }),
+    {Sent, Decoded0} = send_frames(A, B, Camera, 0, [], erlang:monotonic_time(millisecond) + 1000),
+    ok = webrtc_codecs_capture:stop(Camera),
+    ?assert(Sent >= 20),
+    Decoded =
+        Decoded0 ++
+            collect(
+                B,
+                fun
+                    ({decoded, _, _}) -> true;
+                    (_) -> false
+                end,
+                Sent - length(Decoded0),
+                3000
+            ),
+    ?assertEqual(
+        [I * 3000 || I <- lists:seq(0, Sent - 1)],
+        [
+            T
+         || {decoded, <<"0">>, #{format := i420, width := 320, height := 240, timestamp := T}} <-
+                Decoded
+        ]
+    ),
+    ok = webrtc:close(A),
+    ok = webrtc:close(B).
+
+send_frames(A, B, Camera, Sent, Decoded, Deadline) ->
+    receive
+        {webrtc_capture, Camera, #{data := Data, timestamp := Ts, keyframe := Key}} ->
+            ok = webrtc:send_frame(A, <<"0">>, Data, #{timestamp => Ts, keyframe => Key}),
+            send_frames(A, B, Camera, Sent + 1, Decoded, Deadline);
+        {webrtc, B, {decoded, _, _} = Event} ->
+            send_frames(A, B, Camera, Sent, [Event | Decoded], Deadline);
+        {webrtc, _, _} ->
+            send_frames(A, B, Camera, Sent, Decoded, Deadline)
+    after max(0, Deadline - erlang:monotonic_time(millisecond)) ->
+        {Sent, lists:reverse(Decoded)}
     end.
 
 %% One codec of a list, with its retransmission format (RFC 4588).
