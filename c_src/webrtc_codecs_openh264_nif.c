@@ -106,8 +106,9 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         enif_release_resource(d);
         return wc_error(env, "alloc_fail");
     }
-    /* Bad media is reported to the caller, not printed. */
-    (*d->dec)->SetOption(d->dec, DECODER_OPTION_TRACE_LEVEL, &quiet);
+    /* Bad media is reported to the caller, not printed. Should the
+     * option not take, the decoder works all the same, with its log. */
+    (void)(*d->dec)->SetOption(d->dec, DECODER_OPTION_TRACE_LEVEL, &quiet);
     memset(&param, 0, sizeof(param));
     param.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
     /* No concealment: a frame that does not decode is an error, and the
@@ -215,11 +216,19 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         enif_release_resource(e);
         return wc_error(env, "alloc_fail");
     }
-    (*e->enc)->SetOption(e->enc, ENCODER_OPTION_TRACE_LEVEL, &quiet);
+    /* Should the option not take, the encoder works all the same, with
+     * its log. */
+    (void)(*e->enc)->SetOption(e->enc, ENCODER_OPTION_TRACE_LEVEL, &quiet);
 
     /* Real time, one layer, constrained baseline, one frame out for each
      * picture in. */
-    (*e->enc)->GetDefaultParams(e->enc, &param);
+    memset(&param, 0, sizeof(param));
+    if ((*e->enc)->GetDefaultParams(e->enc, &param) != 0) {
+        WelsDestroySVCEncoder(e->enc);
+        e->enc = NULL;
+        enif_release_resource(e);
+        return wc_error(env, "internal_error");
+    }
     param.iUsageType = CAMERA_VIDEO_REAL_TIME;
     param.iPicWidth = w;
     param.iPicHeight = h;
@@ -249,7 +258,11 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         enif_release_resource(e);
         return wc_error(env, "invalid_param");
     }
-    (*e->enc)->SetOption(e->enc, ENCODER_OPTION_DATAFORMAT, &format);
+    if ((*e->enc)->SetOption(e->enc, ENCODER_OPTION_DATAFORMAT, &format) != 0) {
+        /* The destructor uninitializes and destroys the encoder. */
+        enif_release_resource(e);
+        return wc_error(env, "invalid_param");
+    }
     term = enif_make_resource(env, e);
     enif_release_resource(e);
     return wc_ok(env, term);
@@ -325,9 +338,11 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     list = enif_make_list(env, 0);
     enif_mutex_lock(e->lock);
-    if (force)
-        (*e->enc)->ForceIntraFrame(e->enc, true);
-    res = (*e->enc)->EncodeFrame(e->enc, &pic, &info);
+    /* A key frame that was asked for and cannot be made is an error, not
+     * an ordinary frame in its place. */
+    res = force ? (*e->enc)->ForceIntraFrame(e->enc, true) : 0;
+    if (res == 0)
+        res = (*e->enc)->EncodeFrame(e->enc, &pic, &info);
     if (res == 0 && info.eFrameType != videoFrameTypeSkip && info.eFrameType != videoFrameTypeInvalid) {
         for (layer = 0; layer < info.iLayerNum; layer++)
             for (nal = 0; nal < info.sLayerInfo[layer].iNalCount; nal++)

@@ -143,3 +143,15 @@ control_and_bad_input_test() ->
     ?assertEqual(
         {error, {unsupported_codec, <<"opus">>}}, ?M:init(audio, #{name => <<"opus">>}, #{})
     ).
+
+%% A frame of more than two seconds is not one a sender makes: dropped.
+oversized_frame_test() ->
+    St = init(<<"PCMU">>, #{}),
+    ?assertMatch(
+        {ok, [#{samples := _}], _, St},
+        ?M:decode(#{data => binary:copy(<<255>>, 16000), timestamp => 0}, St)
+    ),
+    ?assertEqual(
+        {ok, [#{dropped => too_large, timestamp => 7}], #{}, St},
+        ?M:decode(#{data => binary:copy(<<255>>, 16001), timestamp => 7}, St)
+    ).

@@ -260,8 +260,13 @@ payload(#{format := s16le, sample_rate := Rate, channels := Channels, samples :=
     kind = audio, opts = Opts
 }) ->
     case Opts of
-        #{sample_rate := Rate, channels := Channels} when is_binary(Pcm) -> {ok, Pcm};
-        _ -> error
+        %% At most a second per call: what a sink is given at once is bounded.
+        #{sample_rate := Rate, channels := Channels} when
+            is_binary(Pcm), byte_size(Pcm) =< Rate * Channels * 2
+        ->
+            {ok, Pcm};
+        _ ->
+            error
     end;
 payload(_Raw, _St) ->
     error.

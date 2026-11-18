@@ -13,7 +13,12 @@ For other containers (MP4, WebM, Matroska) go through FFmpeg:
 `webrtc_codecs_playback` writes raw media to one.
 """.
 
--export([read_ivf/1, write_ivf/3, read_wav/1, write_wav/2]).
+-include_lib("kernel/include/file.hrl").
+
+-export([read_ivf/1, read_ivf/2, write_ivf/3, read_wav/1, read_wav/2, write_wav/2]).
+
+%% A file is read whole: the largest one read unless `max_bytes` says otherwise.
+-define(MAX_BYTES, 256 * 1024 * 1024).
 
 -export_type([ivf/0, ivf_frame/0]).
 
@@ -34,7 +39,15 @@ Denominator}` seconds: `{1, 90000}` makes the timestamps RTP timestamps.
 -doc "Read an IVF file: its header and its frames, each with its timestamp in units of the time base.".
 -spec read_ivf(file:filename_all()) -> {ok, ivf()} | {error, term()}.
 read_ivf(Path) ->
-    case file:read_file(Path) of
+    read_ivf(Path, #{}).
+
+-doc """
+The same, with options: `max_bytes`, the largest file to read, default
+256 MB. A larger one gives `{error, too_large}`.
+""".
+-spec read_ivf(file:filename_all(), #{max_bytes => pos_integer()}) -> {ok, ivf()} | {error, term()}.
+read_ivf(Path, Opts) ->
+    case read(Path, Opts) of
         {ok,
             <<"DKIF", _Version:16/little, HeaderSize:16/little, Fourcc:4/binary, W:16/little,
                 H:16/little, Den:32/little, Num:32/little, _Count:32/little, _:32,
@@ -87,7 +100,16 @@ write_ivf(Path, #{fourcc := <<Fourcc:4/binary>>, width := W, height := H} = Head
 -doc "Read a WAV file of 16 bit PCM as one `t:webrtc_codecs:audio/0`.".
 -spec read_wav(file:filename_all()) -> {ok, webrtc_codecs:audio()} | {error, term()}.
 read_wav(Path) ->
-    case file:read_file(Path) of
+    read_wav(Path, #{}).
+
+-doc """
+The same, with options: `max_bytes`, the largest file to read, default
+256 MB. A larger one gives `{error, too_large}`.
+""".
+-spec read_wav(file:filename_all(), #{max_bytes => pos_integer()}) ->
+    {ok, webrtc_codecs:audio()} | {error, term()}.
+read_wav(Path, Opts) ->
+    case read(Path, Opts) of
         {ok, <<"RIFF", _:32, "WAVE", Chunks/binary>>} ->
             case {wav_chunk(<<"fmt ">>, Chunks), wav_chunk(<<"data">>, Chunks)} of
                 {
@@ -160,3 +182,12 @@ write_wav(Path, [#{format := s16le, sample_rate := Rate, channels := Channels} |
     end;
 write_wav(_Path, _) ->
     {error, badarg}.
+
+%% The whole file, when it is not larger than max_bytes.
+read(Path, Opts) ->
+    Max = maps:get(max_bytes, Opts, ?MAX_BYTES),
+    case file:read_file_info(Path) of
+        {ok, #file_info{size = Size}} when Size > Max -> {error, too_large};
+        {ok, _} -> file:read_file(Path);
+        {error, _} = Error -> Error
+    end.

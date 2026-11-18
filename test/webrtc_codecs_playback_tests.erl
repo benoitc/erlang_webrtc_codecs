@@ -87,6 +87,8 @@ audio_to_file() ->
     try
         {ok, Sink} = ?M:start({file, audio, File}, Format),
         [ok = ?M:play(Sink, C) || C <- Chunks],
+        %% More than a second at once is refused, and nothing of it is written.
+        ?assertEqual({error, bad_format}, ?M:play(Sink, ?P:tone(440, 1020, Format, 0))),
         ok = ?M:stop(Sink),
         {ok, #{sample_rate := 16000, channels := 2, samples := Pcm}} = webrtc_codecs_file:read_wav(
             File

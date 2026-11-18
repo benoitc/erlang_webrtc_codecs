@@ -24,6 +24,8 @@ Options: `ptime`, the frame duration in milliseconds (default 20).
 -define(IMPLEMENTATION, <<"webrtc_codecs G.711">>).
 %% A frame has to fit one RTP packet.
 -define(MAX_PTIME, 120).
+%% Two seconds: the most a frame to decode may hold.
+-define(MAX_PAYLOAD, 2 * ?RATE).
 
 -record(st, {
     law :: ulaw | alaw,
@@ -61,6 +63,9 @@ init(Kind, _Codec, Opts) ->
     {error, {badarg, {Kind, Opts}}}.
 
 -doc false.
+decode(#{data := Data, timestamp := Ts}, St) when byte_size(Data) > ?MAX_PAYLOAD ->
+    %% No sender puts that much in a packet: bad media, dropped.
+    {ok, [#{dropped => too_large, timestamp => Ts}], #{}, St};
 decode(#{data := Data, timestamp := Ts}, #st{law = Law} = St) ->
     Out = #{
         format => s16le,

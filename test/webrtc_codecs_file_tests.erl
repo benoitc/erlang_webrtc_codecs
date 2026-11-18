@@ -81,6 +81,11 @@ ivf_errors_test() ->
     File = tmp(".ivf"),
     try
         ?assertEqual({error, enoent}, ?F:read_ivf("/nonexistent/file.ivf")),
+        ok = ?F:write_ivf(File, #{fourcc => <<"VP80">>, width => 2, height => 2}, [
+            #{data => <<1, 2, 3>>, timestamp => 0}
+        ]),
+        ?assertEqual({error, too_large}, ?F:read_ivf(File, #{max_bytes => 40})),
+        ?assertMatch({ok, _}, ?F:read_ivf(File, #{max_bytes => 47})),
         ok = file:write_file(File, <<"RIFF and not IVF at all, but long enough to be one">>),
         ?assertEqual({error, not_ivf}, ?F:read_ivf(File)),
         ok = ?F:write_ivf(File, #{fourcc => <<"VP80">>, width => 2, height => 2}, [
@@ -134,6 +139,8 @@ wav_errors_test() ->
     Audio = ?P:tone(440, 20, #{sample_rate => 8000, channels => 1}, 0),
     try
         ?assertEqual({error, enoent}, ?F:read_wav("/nonexistent/file.wav")),
+        ok = ?F:write_wav(File, Audio),
+        ?assertEqual({error, too_large}, ?F:read_wav(File, #{max_bytes => 100})),
         ok = file:write_file(File, <<"DKIF is not a WAV">>),
         ?assertEqual({error, not_wav}, ?F:read_wav(File)),
         %% 8 bit PCM is not read.
