@@ -2,7 +2,7 @@
     {description, "Audio and video codec plugins for erlang_webrtc"},
     {vsn, "0.1.0"},
     {registered, []},
-    {applications, [kernel, stdlib, webrtc]},
+    {applications, [kernel, stdlib, crypto, webrtc]},
     {env, []},
     {modules, []},
     {licenses, ["Apache-2.0"]},

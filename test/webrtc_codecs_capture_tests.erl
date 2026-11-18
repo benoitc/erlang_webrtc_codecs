@@ -32,7 +32,12 @@ capture_test_() ->
                     {"encoded AV1", fun() -> encoded(av1, "libsvtav1") end},
                     {"encoded H.264", fun encoded_h264/0},
                     {"encoded frames dropped up to a key frame", fun encoded_slow_owner/0},
-                    {"bad encode options", fun bad_encode/0}
+                    {"bad encode options", fun bad_encode/0},
+                    {"bytes that are no stream end the capture", fun bad_header/0},
+                    {"a program faster than the capture is held back", fun flood/0},
+                    {"a program that will not end is killed", fun ignore_close/0},
+                    {"what a program says is kept short", fun noisy/0},
+                    {"a program that talks for ever is ended at the deadline", fun noisy_forever/0}
                 ]
             ]
     end.
@@ -333,6 +338,116 @@ bad_encode() ->
     ],
     process_flag(trap_exit, false),
     flush().
+
+%% A capture of the program that stands in for FFmpeg, in a mode.
+fake(Mode, Opts) ->
+    Fake = filename:join([webrtc_codecs_test_media:root(), "test", "fake_ffmpeg.escript"]),
+    PidFile = string:trim(os:cmd("mktemp")),
+    {ok, Pid} = ?M:start({file, video, "none"}, Opts#{
+        ffmpeg => Fake,
+        width => 64,
+        height => 48,
+        input_options => ["-mode", Mode, "-pidfile", PidFile]
+    }),
+    {Pid, PidFile}.
+
+%% The process id the program wrote, once it has.
+os_pid(PidFile) -> os_pid(PidFile, 100).
+
+os_pid(PidFile, Tries) ->
+    case file:read_file(PidFile) of
+        {ok, <<_, _/binary>> = Text} ->
+            _ = file:delete(PidFile),
+            binary_to_list(Text);
+        _ when Tries > 0 ->
+            timer:sleep(50),
+            os_pid(PidFile, Tries - 1)
+    end.
+
+alive(OsPid) ->
+    os:cmd("kill -0 " ++ OsPid ++ " 2>/dev/null && echo alive") =/= "".
+
+gone(OsPid) -> gone(OsPid, 100).
+
+gone(OsPid, Tries) ->
+    case alive(OsPid) of
+        false ->
+            true;
+        true when Tries > 0 ->
+            timer:sleep(50),
+            gone(OsPid, Tries - 1);
+        true ->
+            false
+    end.
+
+%% An encoded capture whose program writes something else: an error as
+%% soon as there is enough to tell, not a buffer that grows.
+bad_header() ->
+    {Pid, PidFile} = fake("bad_header", #{encode => #{codec => vp8}}),
+    Ref = monitor(process, Pid),
+    receive
+        {webrtc_capture, Pid, Result} -> ?assertEqual({error, bad_stream}, Result)
+    after 10000 -> error(no_error)
+    end,
+    receive
+        {'DOWN', Ref, process, Pid, normal} -> ok
+    after 10000 -> error(still_alive)
+    end,
+    ?assert(gone(os_pid(PidFile))).
+
+%% The program writes as fast as it is read and the owner reads nothing:
+%% the capture drops, and neither its mailbox nor its memory grows.
+flood() ->
+    {Pid, PidFile} = fake("flood", #{max_queue => 3}),
+    OsPid = os_pid(PidFile),
+    timer:sleep(1500),
+    #{captured := Captured, dropped := Dropped} = ?M:stats(Pid),
+    {message_queue_len, Queued} = process_info(Pid, message_queue_len),
+    {memory, Memory} = process_info(Pid, memory),
+    ok = ?M:stop(Pid),
+    ?assert(Captured > 1000),
+    ?assert(Dropped > 1000),
+    ?assert(Queued =< 2),
+    ?assert(Memory < 8 * 1024 * 1024),
+    ?assert(gone(OsPid)),
+    flush().
+
+%% The program connects, writes nothing and ignores being asked to end:
+%% stop/1 returns, and the program is gone.
+ignore_close() ->
+    {Pid, PidFile} = fake("ignore_close", #{}),
+    OsPid = os_pid(PidFile),
+    timer:sleep(300),
+    ?assert(alive(OsPid)),
+    T0 = erlang:monotonic_time(millisecond),
+    ok = ?M:stop(Pid),
+    ?assert(erlang:monotonic_time(millisecond) - T0 < 8000),
+    ?assertNot(alive(OsPid)).
+
+%% 200 kB of messages, then a failure: the owner gets the end of them.
+noisy() ->
+    {Pid, _} = fake("noisy", #{}),
+    receive
+        {webrtc_capture, Pid, {error, {ffmpeg, 3, Said}}} ->
+            ?assert(byte_size(Said) =< 4096),
+            ?assertNotEqual(nomatch, binary:match(Said, <<"line 8000 of what went wrong">>))
+    after 20000 -> error(no_error)
+    end.
+
+%% What device listing relies on: a program that never stops talking is
+%% ended at the deadline, and what is kept of its output is capped.
+noisy_forever() ->
+    Fake = filename:join([webrtc_codecs_test_media:root(), "test", "fake_ffmpeg.escript"]),
+    PidFile = string:trim(os:cmd("mktemp")),
+    T0 = erlang:monotonic_time(millisecond),
+    {Ended, Out} = webrtc_codecs_exec:run(Fake, ["-mode", "noisy_forever", "-pidfile", PidFile], #{
+        timeout => 1500, max_bytes => 10000
+    }),
+    Elapsed = erlang:monotonic_time(millisecond) - T0,
+    ?assertMatch({killed, _}, Ended),
+    ?assertEqual(10000, byte_size(Out)),
+    ?assert(Elapsed >= 1500 andalso Elapsed < 7000),
+    ?assertNot(alive(os_pid(PidFile))).
 
 flush() ->
     receive

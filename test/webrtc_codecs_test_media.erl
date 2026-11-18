@@ -2,7 +2,7 @@
 %% (test/corpora/frames), and FFmpeg as a reference decoder.
 -module(webrtc_codecs_test_media).
 
--export([corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
+-export([root/0, corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
 
 %% The path of a corpus file, or false when the dependency was fetched
 %% without its tests. erlang_webrtc is under _build as a fetched

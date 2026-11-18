@@ -112,7 +112,13 @@ picture, a 440 Hz tone).
 -type device() :: #{index := non_neg_integer(), name := binary()}.
 
 -record(st, {
-    port :: port(),
+    %% FFmpeg, until it has been ended.
+    exec :: undefined | webrtc_codecs_exec:exec(),
+    %% Where FFmpeg connects to write the media, then the connection:
+    %% a socket, read one message at a time, so that a capture process
+    %% that is behind holds FFmpeg back instead of filling its mailbox.
+    listen :: undefined | webrtc_codecs_exec:endpoint(),
+    socket :: undefined | gen_tcp:socket() | closed,
     owner :: pid(),
     kind :: video | audio,
     opts :: map(),
@@ -130,10 +136,17 @@ picture, a 440 Hz tone).
     buffer = <<>> :: binary(),
     %% Pictures or chunks read, and how many of them were dropped.
     count = 0 :: non_neg_integer(),
-    dropped = 0 :: non_neg_integer(),
-    %% Where FFmpeg writes what it has to say.
-    log :: file:filename_all()
+    dropped = 0 :: non_neg_integer()
 }).
+
+%% How often a connection from FFmpeg is looked for, how long FFmpeg may
+%% live after closing it, and how long it is given to end when capture
+%% stops, before it is made to.
+-define(ACCEPT_MS, 20).
+-define(LINGER_MS, 2000).
+-define(STOP_MS, 1000).
+%% What is asked of the socket at once.
+-define(SOCKET_BUFFER, 1048576).
 
 -doc """
 The cameras and microphones FFmpeg sees. On macOS the terminal or the
@@ -222,24 +235,10 @@ lines(Out) ->
     binary:split(Out, [<<"\n">>, <<"\r\n">>], [global, trim_all]).
 
 %% Run a command to its end and give what it wrote, at most a megabyte.
+%% It is ended after ten seconds, whatever it is doing.
 run(Exe, Args) ->
-    Port = open_port({spawn_executable, Exe}, [
-        {args, Args}, binary, exit_status, stderr_to_stdout, hide
-    ]),
-    collect(Port, <<>>).
-
-collect(Port, Acc) ->
-    receive
-        {Port, {data, Data}} when byte_size(Acc) < 1048576 ->
-            collect(Port, <<Acc/binary, Data/binary>>);
-        {Port, {data, _}} ->
-            collect(Port, Acc);
-        {Port, {exit_status, _}} ->
-            Acc
-    after 10000 ->
-        close(Port),
-        Acc
-    end.
+    {_Ended, Out} = webrtc_codecs_exec:run(Exe, Args, #{timeout => 10000, max_bytes => 1048576}),
+    Out.
 
 -doc "Start capturing. The process is linked to the caller.".
 -spec start(source(), options()) -> {ok, pid()} | {error, term()}.
@@ -263,29 +262,37 @@ init({Source, Opts0}) ->
         ok ?= valid(Opts),
         {ok, Ffmpeg} ?= ffmpeg(Opts),
         {ok, Kind, Input} ?= input(Source, os:type(), Opts),
-        Log = filename:join(
-            tmp_dir(),
-            "webrtc_codecs_capture-" ++ integer_to_list(erlang:unique_integer([positive]))
-        ),
         {ok, Format, Codec, Output} ?= output(Kind, maps:get(encode, Opts, undefined), Opts),
-        Args = ["-nostdin", "-hide_banner", "-loglevel", "error"] ++ Input ++ Output,
+        {ok, #{url := Url} = Listen} ?= webrtc_codecs_exec:listen(),
         %% FFmpeg ending is told to the owner, not a reason to die.
         process_flag(trap_exit, true),
-        Port = open(Ffmpeg, Args, Log),
+        Args = ["-nostdin", "-hide_banner", "-loglevel", "error"] ++ Input ++ Output ++ [Url],
+        {ok, Exec} ?= open(Ffmpeg, Args, Listen),
         Owner = maps:get(owner, Opts),
         _ = monitor(process, Owner),
+        self() ! accept,
         {ok, #st{
-            port = Port,
+            exec = Exec,
+            listen = Listen,
             owner = Owner,
             kind = Kind,
             opts = Opts,
             format = Format,
             codec = Codec,
-            size = size(Kind, Opts),
-            log = Log
+            size = size(Kind, Opts)
         }}
     else
         {error, Reason} -> {stop, Reason}
+    end.
+
+%% An executable that is not there raises.
+open(Ffmpeg, Args, Listen) ->
+    try
+        {ok, webrtc_codecs_exec:open(Ffmpeg, Args)}
+    catch
+        error:Reason ->
+            ok = webrtc_codecs_exec:close_listen(Listen),
+            {error, {ffmpeg, Reason}}
     end.
 
 defaults() ->
@@ -329,12 +336,6 @@ ffmpeg(_Opts) ->
     case os:find_executable("ffmpeg") of
         false -> {error, no_ffmpeg};
         Path -> {ok, Path}
-    end.
-
-tmp_dir() ->
-    case os:getenv("TMPDIR") of
-        false -> "/tmp";
-        Dir -> Dir
     end.
 
 %% The kind of media and the FFmpeg arguments up to and including the
@@ -390,8 +391,8 @@ device_input(_, audio, Device) ->
 device_name(Index) when is_integer(Index) -> integer_to_list(Index);
 device_name(Name) -> unicode:characters_to_list(Name).
 
-%% What FFmpeg writes to its standard output, and how it is cut: planes
-%% or samples, or with `encode` an encoded stream.
+%% What FFmpeg writes, up to where it writes it, and how it is cut:
+%% planes or samples, or with `encode` an encoded stream.
 output(Kind, undefined, Opts) ->
     {ok, raw, undefined, raw_output(Kind, Opts)};
 output(video, #{codec := Codec} = Encode, Opts) when
@@ -411,7 +412,7 @@ output(video, #{codec := Codec} = Encode, Opts) when
             Args =
                 picture_output(Opts) ++ ["-c:v", Encoder] ++ Tuning ++ Rate ++
                     Container,
-            {ok, Format, Codec, Args ++ ["pipe:1"]};
+            {ok, Format, Codec, Args};
         false ->
             {error, {badarg, Encode}}
     end;
@@ -419,10 +420,10 @@ output(_Kind, Encode, _Opts) ->
     {error, {badarg, {encode, Encode}}}.
 
 raw_output(video, Opts) ->
-    picture_output(Opts) ++ ["-f", "rawvideo", "pipe:1"];
+    picture_output(Opts) ++ ["-f", "rawvideo"];
 raw_output(audio, #{sample_rate := Rate, channels := Channels}) ->
     Format = ["-ac", integer_to_list(Channels), "-ar", integer_to_list(Rate)],
-    ["-map", "0:a:0", "-vn"] ++ Format ++ ["-f", "s16le", "pipe:1"].
+    ["-map", "0:a:0", "-vn"] ++ Format ++ ["-f", "s16le"].
 
 %% The first video stream, as 4:2:0 pictures of the size and rate asked for.
 picture_output(#{frame_rate := Fps} = Opts) ->
@@ -463,19 +464,6 @@ size(video, #{width := W, height := H}) ->
 size(audio, #{sample_rate := Rate, channels := Channels, frame_ms := Ms}) ->
     Rate * Ms div 1000 * Channels * 2.
 
-%% FFmpeg's standard output is the media, so its messages go to a file,
-%% read when it ends. Closing the port closes its output and ends it.
-open(Ffmpeg, Args, Log) ->
-    case os:type() of
-        {unix, _} ->
-            Sh = os:find_executable("sh"),
-            ShArgs = ["-c", "exec \"$0\" \"$@\" 2>\"$WEBRTC_CODECS_CAPTURE_LOG\"", Ffmpeg | Args],
-            Env = {env, [{"WEBRTC_CODECS_CAPTURE_LOG", unicode:characters_to_list(Log)}]},
-            open_port({spawn_executable, Sh}, [{args, ShArgs}, Env, binary, stream, exit_status]);
-        _ ->
-            open_port({spawn_executable, Ffmpeg}, [{args, Args}, binary, stream, exit_status, hide])
-    end.
-
 -doc false.
 handle_call(stats, _From, #st{count = Count, dropped = Dropped} = St) ->
     {reply, #{captured => Count, dropped => Dropped}, St}.
@@ -485,49 +473,83 @@ handle_cast(_Msg, St) ->
     {noreply, St}.
 
 -doc false.
-handle_info({Port, {data, Data}}, #st{port = Port, owner = Owner, buffer = Buffer} = St) ->
+handle_info(accept, #st{listen = #{socket := Listening} = Listen, socket = undefined} = St) ->
+    case gen_tcp:accept(Listening, 0) of
+        {ok, Socket} ->
+            ok = webrtc_codecs_exec:close_listen(Listen),
+            _ = inet:setopts(Socket, [
+                {recbuf, ?SOCKET_BUFFER}, {buffer, ?SOCKET_BUFFER}, {active, once}
+            ]),
+            {noreply, St#st{listen = undefined, socket = Socket}};
+        {error, timeout} ->
+            %% Polled, so that stop and the end of the owner are served
+            %% while a device takes its time to open.
+            _ = erlang:send_after(?ACCEPT_MS, self(), accept),
+            {noreply, St};
+        {error, Reason} ->
+            finish({error, {socket, Reason}}, St)
+    end;
+handle_info(accept, St) ->
+    {noreply, St};
+handle_info({tcp, Socket, Data}, #st{socket = Socket, buffer = Buffer} = St) ->
     case deliver(<<Buffer/binary, Data/binary>>, St) of
         #st{} = St1 ->
+            %% The next message is asked for once this one is dealt with.
+            _ = inet:setopts(Socket, [{active, once}]),
             {noreply, St1};
         bad_stream ->
             %% What FFmpeg writes is not the stream that was asked for.
-            Owner ! {webrtc_capture, self(), {error, bad_stream}},
-            {stop, normal, St}
+            finish({error, bad_stream}, St)
     end;
-handle_info({Port, {exit_status, Status}}, #st{port = Port, owner = Owner, log = Log} = St) ->
-    Said =
-        case file:read_file(Log) of
-            {ok, Text} -> string:trim(Text);
-            {error, _} -> <<>>
-        end,
-    Result =
-        case {Status, Said} of
-            {0, _} -> eof;
-            _ -> {error, {ffmpeg, Status, Said}}
-        end,
-    Owner ! {webrtc_capture, self(), Result},
-    {stop, normal, St};
-handle_info({'EXIT', Port, Reason}, #st{port = Port, owner = Owner} = St) when Reason =/= normal ->
-    Owner ! {webrtc_capture, self(), {error, {port, Reason}}},
-    {stop, normal, St};
+handle_info({tcp_closed, Socket}, #st{socket = Socket} = St) ->
+    ended(St#st{socket = closed});
+handle_info({tcp_error, Socket, _Reason}, #st{socket = Socket} = St) ->
+    _ = gen_tcp:close(Socket),
+    ended(St#st{socket = closed});
+handle_info(linger, #st{exec = Exec} = St) when Exec =/= undefined ->
+    %% FFmpeg closed its output and is still there: it is ended.
+    finish(result(webrtc_codecs_exec:stop(Exec, 0)), St#st{exec = undefined});
 handle_info({'DOWN', _, process, Owner, _}, #st{owner = Owner} = St) ->
     {stop, normal, St};
+handle_info(Msg, #st{exec = Exec} = St) when Exec =/= undefined ->
+    case webrtc_codecs_exec:handle(Msg, Exec) of
+        {ok, Exec1} -> {noreply, St#st{exec = Exec1}};
+        {exited, Exec1} -> ended(St#st{exec = Exec1});
+        ignore -> {noreply, St}
+    end;
 handle_info(_Info, St) ->
     {noreply, St}.
 
--doc false.
-terminate(_Reason, #st{port = Port, log = Log}) ->
-    close(Port),
-    _ = file:delete(Log),
-    ok.
-
-%% The port may already be closed when FFmpeg ended by itself.
-close(Port) ->
-    try
-        port_close(Port)
-    catch
-        error:badarg -> true
+%% The capture is over when FFmpeg has ended and everything it wrote has
+%% been read. What it wrote may still be on its way when its end is
+%% known, and it may close its output before it ends.
+ended(#st{exec = Exec, socket = Socket} = St) ->
+    case {webrtc_codecs_exec:exited(Exec), Socket} of
+        {{true, _}, S} when S =:= closed; S =:= undefined ->
+            finish(result(webrtc_codecs_exec:stop(Exec, 0)), St#st{exec = undefined});
+        {{true, _}, _} ->
+            {noreply, St};
+        {false, _} ->
+            _ = erlang:send_after(?LINGER_MS, self(), linger),
+            {noreply, St}
     end.
+
+result({exited, 0, _Said}) -> eof;
+result({exited, Status, Said}) -> {error, {ffmpeg, Status, Said}};
+result({killed, Said}) -> {error, {ffmpeg, killed, Said}}.
+
+finish(Result, #st{owner = Owner} = St) ->
+    Owner ! {webrtc_capture, self(), Result},
+    {stop, normal, St}.
+
+%% Closing the socket makes FFmpeg fail on its next write and end. One
+%% that does not, because it waits on a device, is made to.
+-doc false.
+terminate(_Reason, #st{exec = Exec, listen = Listen, socket = Socket}) ->
+    _ = is_port(Socket) andalso gen_tcp:close(Socket),
+    _ = Listen =/= undefined andalso webrtc_codecs_exec:close_listen(Listen),
+    _ = Exec =/= undefined andalso webrtc_codecs_exec:stop(Exec, ?STOP_MS),
+    ok.
 
 %% An encoded frame larger than this is not one: the stream is not what
 %% it should be.
@@ -580,8 +602,14 @@ deliver(Buffer, #st{format = annexb, count = Count, opts = #{frame_rate := Fps}}
         _ ->
             St#st{buffer = Buffer}
     end;
-deliver(Buffer, St) ->
-    St#st{buffer = Buffer}.
+deliver(Buffer, #st{format = ivf_header}) when byte_size(Buffer) >= 32 ->
+    %% Enough for the header, and it is not one.
+    bad_stream;
+deliver(Buffer, #st{size = Size} = St) when byte_size(Buffer) =< max(Size, ?MAX_FRAME + 12) ->
+    St#st{buffer = Buffer};
+deliver(_Buffer, _St) ->
+    %% More kept than any state needs: a state above let it through.
+    bad_stream.
 
 behind(#st{owner = Owner, opts = Opts}) ->
     case erlang:process_info(Owner, message_queue_len) of
