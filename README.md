@@ -23,7 +23,8 @@ encoders included.
 
 You need Erlang/OTP 29 or later and rebar3. For the native codecs you also
 need CMake, pkg-config, a C compiler and the library of each codec; a codec
-whose library is missing is left out of the build.
+whose library is missing is left out of the build. It is tested on macOS,
+Linux and FreeBSD.
 
 ```sh
 rebar3 compile

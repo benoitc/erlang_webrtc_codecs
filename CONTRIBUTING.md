@@ -76,6 +76,30 @@ export WEBRTC_CODECS_BROWSER_PEER=$PWD
 Without it, or without node, the suite skips itself with the reason. It
 looks in `../erlang_webrtc/interop/browser` when the variable is not set.
 
+## Test on Linux and FreeBSD
+
+The native code has to build and pass on the three systems. From macOS or
+Linux, run the same tests on the other two:
+
+```bash
+rebar3 compile              # fetches the dependencies the copies carry
+scripts/test-linux.sh       # Debian in Docker
+scripts/test-freebsd.sh     # FreeBSD in a QEMU virtual machine
+```
+
+Each builds a copy of the sources with every codec library required, so a
+library that is missing there is a failure, not a skip. Give a command to
+run something else, for example `scripts/test-linux.sh rebar3 dialyzer`.
+
+The FreeBSD script downloads the official cloud image once (600 MB, checked
+against its published checksum), keeps the machine's disk in
+`~/.cache/webrtc_codecs/freebsd`, and leaves the machine running between
+runs: `scripts/test-freebsd.sh stop` ends it, `destroy` also forgets its
+disk. It needs `qemu`, and listens for SSH on `127.0.0.1:52222`
+(`WEBRTC_CODECS_FREEBSD_PORT` to change it).
+
+The browser suite only runs on the machine you work on.
+
 A codec gets a round trip (encode, decode, compare with
 `webrtc_codecs_pattern:psnr/2` or `snr/2`), a comparison with another
 implementation where one is at hand, and the error paths: raw media in the
