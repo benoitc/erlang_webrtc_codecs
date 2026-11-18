@@ -100,15 +100,22 @@ the plugin that calls the module of the negotiated codec.
 **Codec plugins:** one module per codec family, each with the
 `webrtc_media_codec` behaviour plus `codecs/0`, the codecs it can run in this
 build (none when its native library is missing). `webrtc_codecs_opus.erl`
-(libopus), `webrtc_codecs_vpx.erl` (VP8 and VP9, libvpx), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
+(libopus), `webrtc_codecs_vpx.erl` (VP8 and VP9, libvpx),
+`webrtc_codecs_av1.erl` (dav1d to decode, libaom to encode), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
 `?MODULES` in `webrtc_codecs.erl`.
+
+**Video logic:** `webrtc_codecs_video.erl` holds what the video plugins
+share: the picture size limit, waiting for a key frame after a frame that
+was not decoded, bitrate and key frame requests, timestamps and statistics.
+A video plugin implements its callbacks (the library calls and
+`frame_info/2`, which reads a frame header) and delegates the rest.
 
 **Native code:** `c_src/CMakeLists.txt` builds one NIF per codec library
 pkg-config finds, into `priv/`; `c_src/build_nif.sh` runs it from the rebar3
 compile hook. Each NIF has a private Erlang module, `webrtc_codecs_<lib>_nif`,
 that loads without it: `loaded/0` is then false and the codec is not listed.
 `c_src/webrtc_codecs_nif.h` holds the helpers the NIFs share.
-`WEBRTC_CODECS_REQUIRE="opus;vpx"` fails the build when a library is missing,
+`WEBRTC_CODECS_REQUIRE="opus;vpx;dav1d;aom"` fails the build when a library is missing,
 `WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR
@@ -131,6 +138,10 @@ What `decode/2` gives and `encode/2` takes, see
   that compare with FFmpeg skip themselves when `ffmpeg` is not installed,
   and the tests of a native codec when its library was not there at build
   time. CI sets `WEBRTC_CODECS_REQUIRE` so that a skip there is a failure.
+- `test/webrtc_codecs_video_checks.erl`: the checks every video plugin runs
+  (round trip, bitrate, key frames, damaged and oversized frames, random
+  input); `test/webrtc_codecs_test_media.erl` reads the frame corpus of
+  erlang_webrtc and uses FFmpeg as a reference decoder.
 - `test/webrtc_codecs_*_SUITE.erl`: Common Test, the plugins inside two
   erlang_webrtc peer connections on loopback.
 

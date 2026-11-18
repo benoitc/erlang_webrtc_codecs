@@ -28,7 +28,7 @@ jobs:
 
       # The G.711 tests compare with FFmpeg and skip without it.
       - name: Install FFmpeg and the codec libraries
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg cmake pkg-config libopus-dev libvpx-dev
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg cmake pkg-config libopus-dev libvpx-dev libdav1d-dev libaom-dev
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -44,7 +44,7 @@ jobs:
       # test is skipped without notice.
       - name: Compile
         env:
-          WEBRTC_CODECS_REQUIRE: "opus;vpx"
+          WEBRTC_CODECS_REQUIRE: "opus;vpx;dav1d;aom"
         run: rebar3 compile
 
       - name: Check formatting

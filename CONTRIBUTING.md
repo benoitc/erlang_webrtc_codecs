@@ -30,7 +30,7 @@ change, run the tests, and be able to answer questions about it yourself.
 ## Set up
 
 You need Erlang/OTP 29 or later, rebar3, CMake, pkg-config and a C compiler,
-plus the codec libraries: libopus and libvpx. A codec whose library is missing is left
+plus the codec libraries: libopus, libvpx, dav1d and libaom. A codec whose library is missing is left
 out and its tests skip themselves. Install `ffmpeg` to run the tests that
 compare with it; they skip themselves too.
 
@@ -73,7 +73,8 @@ wrong format, and a truncated or corrupt frame.
 
 1. Write `src/webrtc_codecs_<family>.erl` with the `webrtc_media_codec`
    behaviour and `codecs/0`, which lists the codecs the module can run in
-   this build.
+   this build. A video codec also implements `webrtc_codecs_video` and
+   delegates to it, and its tests run `webrtc_codecs_video_checks:all/1`.
 2. Add the module to `?MODULES` in `src/webrtc_codecs.erl`. For a native
    codec, add the NIF to `c_src/CMakeLists.txt` with `add_codec_nif` and its
    library to `WEBRTC_CODECS_REQUIRE` in the CI workflow.
