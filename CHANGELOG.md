@@ -20,5 +20,8 @@
 - Capture of raw pictures and audio from a camera, a microphone, a file or
   a generated test source, by running FFmpeg outside the VM. A slow reader
   loses frames instead of growing memory.
+- Playback of decoded pictures in a window and of decoded audio on the
+  speaker, and recording of either to any file FFmpeg writes.
+- Reading and writing of IVF and WAV files.
 - A test picture and a test tone to feed an encoder without a camera or a
   microphone, and PSNR and SNR to compare what comes back.

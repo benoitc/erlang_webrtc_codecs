@@ -14,7 +14,8 @@ media itself, rather than forward it.
 | G.711 (PCMU, PCMA) | yes | yes | nothing, pure Erlang |
 
 It also captures raw pictures and audio from a camera, a microphone or a
-file, through the `ffmpeg` executable. H.264 and playback are not there yet.
+file, and shows, plays or records what is decoded, through the `ffmpeg` and
+`ffplay` executables. H.264 is not there yet.
 
 ## Build and test
 
@@ -72,6 +73,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [Opus](docs/opus.md)
 - [G.711](docs/g711.md)
 - [Capture from a camera or a microphone](docs/capture.md)
+- [Play, show or record decoded media](docs/playback.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md), and issues met in erlang_webrtc
 - [Contributing](CONTRIBUTING.md)
 
