@@ -1,0 +1,9 @@
+# Alpine image the tests run in (WEBRTC_CODECS_LINUX=alpine
+# scripts/test-linux.sh): Erlang/OTP 29 on musl with the codec libraries,
+# CMake and FFmpeg.
+FROM erlang:29-alpine
+
+RUN apk add --no-cache build-base cmake pkgconf ffmpeg \
+        opus-dev libvpx-dev openh264-dev dav1d-dev aom-dev
+
+WORKDIR /src

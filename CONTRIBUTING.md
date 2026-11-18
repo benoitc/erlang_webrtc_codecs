@@ -30,7 +30,8 @@ change, run the tests, and be able to answer questions about it yourself.
 ## Set up
 
 You need Erlang/OTP 29 or later, rebar3, CMake, pkg-config and a C compiler,
-plus the codec libraries: libopus, libvpx, OpenH264, dav1d and libaom. A codec whose library is missing is left
+plus the codec libraries: libopus, libvpx, OpenH264, dav1d and libaom.
+[docs/install.md](docs/install.md) has the packages for each system. A codec whose library is missing is left
 out and its tests skip themselves. Install `ffmpeg` to run the tests that
 compare with it; they skip themselves too.
 
@@ -84,6 +85,7 @@ Linux, run the same tests on the other two:
 ```bash
 rebar3 compile              # fetches the dependencies the copies carry
 scripts/test-linux.sh       # Debian in Docker
+WEBRTC_CODECS_LINUX=alpine scripts/test-linux.sh   # Alpine, for musl
 scripts/test-freebsd.sh     # FreeBSD in a QEMU virtual machine
 ```
 

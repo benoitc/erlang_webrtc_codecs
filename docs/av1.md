@@ -13,6 +13,8 @@ sudo apt-get install libdav1d-dev libaom-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
 
+[Set up on your system](install.md) has the other systems.
+
 Check what this build can do:
 
 ```erlang

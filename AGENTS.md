@@ -67,8 +67,10 @@ rebar3 ex_doc               # Docs must build
 
 macOS, Linux and FreeBSD. A change to native code, to the build or to a
 port program is run on all three before it is committed:
-`rebar3 eunit && rebar3 ct` here, `scripts/test-linux.sh` (Docker) and
-`scripts/test-freebsd.sh` (QEMU). Behaviour differs between them where the
+`rebar3 eunit && rebar3 ct` here, `scripts/test-linux.sh` (Docker, Debian
+and with `WEBRTC_CODECS_LINUX=alpine` Alpine) and `scripts/test-freebsd.sh`
+(QEMU). What each system needs installed is in
+[docs/install.md](docs/install.md): keep it in step when a library is added. Behaviour differs between them where the
 operating system is involved: on Linux a write to a program that has exited
 closes the port with `epipe`, on macOS the exit status comes first.
 

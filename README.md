@@ -24,7 +24,14 @@ encoders included.
 You need Erlang/OTP 29 or later and rebar3. For the native codecs you also
 need CMake, pkg-config, a C compiler and the library of each codec; a codec
 whose library is missing is left out of the build. It is tested on macOS,
-Linux and FreeBSD.
+Linux (Debian, Alpine) and FreeBSD.
+
+[Set up on your system](docs/install.md) has the packages to install on
+macOS, Debian, Ubuntu, Alpine, Fedora and FreeBSD. On macOS:
+
+```sh
+brew install erlang rebar3 cmake pkg-config ffmpeg opus libvpx openh264 dav1d aom
+```
 
 ```sh
 rebar3 compile
@@ -70,6 +77,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 
 ## Documentation
 
+- [Set up on your system](docs/install.md): what to install on each operating system
 - [Raw media](docs/raw-media.md): the pictures and audio you exchange with a plugin, bitrate and key frame requests
 - [VP8 and VP9](docs/vp8-vp9.md)
 - [H.264](docs/h264.md)

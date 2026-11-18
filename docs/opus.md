@@ -13,6 +13,8 @@ sudo apt-get install libopus-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
 
+[Set up on your system](install.md) has the other systems.
+
 Check that the codec is there:
 
 ```erlang

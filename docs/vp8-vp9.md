@@ -13,6 +13,8 @@ sudo apt-get install libvpx-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
 
+[Set up on your system](install.md) has the other systems.
+
 Check that the codecs are there:
 
 ```erlang
