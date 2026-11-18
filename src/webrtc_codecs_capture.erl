@@ -19,13 +19,25 @@ when the source ends, and stops. It stops with its owner.
 When the owner has more than `max_queue` messages waiting, what is
 captured is dropped and counted, so a slow owner costs frames, not
 memory.
+
+With the `encode` option FFmpeg also encodes the video, and the owner
+gets encoded frames to pass to `webrtc:send_frame/4`, with no codec
+plugin:
+
+```erlang
+{ok, Cam} = webrtc_codecs_capture:start({camera, 0}, #{encode => #{codec => vp8, bitrate => 1000000}}),
+receive
+    {webrtc_capture, Cam, #{data := Frame, timestamp := Ts, keyframe := Key}} ->
+        webrtc:send_frame(Pc, Mid, Frame, #{timestamp => Ts, keyframe => Key})
+end.
+```
 """.
 -behaviour(gen_server).
 
 -export([devices/0, start/2, stop/1, stats/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--export_type([source/0, options/0, device/0]).
+-export_type([source/0, options/0, encode/0, encoded_frame/0, device/0]).
 
 -doc """
 What to capture: a device by its index or its name in `devices/0`, a
@@ -48,6 +60,8 @@ picture, a 440 Hz tone).
 - `realtime`: pace a file or a test source at its own rate, default
   `true`; with `false` FFmpeg reads as fast as it can, and what the owner
   does not take in time is dropped
+- `encode`: have FFmpeg encode the video and give encoded frames, see
+  `t:encode/0`
 - `input_options`: FFmpeg options placed before the input, to replace the
   ones this module derives for a device
 - `ffmpeg`: path of the executable, default the one in `PATH`
@@ -62,8 +76,37 @@ picture, a 440 Hz tone).
     frame_ms => pos_integer(),
     max_queue => non_neg_integer(),
     realtime => boolean(),
+    encode => encode(),
     input_options => [string()],
     ffmpeg => file:filename_all()
+}.
+
+-doc """
+- `codec`: `vp8`, `vp9`, `av1` or `h264`
+- `bitrate`: in bits per second, default 1000000
+- `keyframe_interval`: frames between two key frames, default 60. FFmpeg
+  cannot be asked for a key frame while it runs, so a peer that loses a
+  frame waits for the next one.
+- `encoder`: the FFmpeg encoder, default `libvpx`, `libvpx-vp9`,
+  `libsvtav1`, and for H.264 `h264_videotoolbox` on macOS and
+  `libopenh264` elsewhere
+- `encoder_options`: FFmpeg options for the encoder, replacing the real
+  time ones this module sets for the default encoders
+""".
+-type encode() :: #{
+    codec := vp8 | vp9 | av1 | h264,
+    bitrate => pos_integer(),
+    keyframe_interval => pos_integer(),
+    encoder => string(),
+    encoder_options => [string()]
+}.
+
+-doc "An encoded frame, as `webrtc:send_frame/4` takes it: `timestamp` is in 90 kHz units.".
+-type encoded_frame() :: #{
+    codec := vp8 | vp9 | av1 | h264,
+    data := binary(),
+    timestamp := non_neg_integer(),
+    keyframe := boolean()
 }.
 
 -type device() :: #{index := non_neg_integer(), name := binary()}.
@@ -73,8 +116,17 @@ picture, a 440 Hz tone).
     owner :: pid(),
     kind :: video | audio,
     opts :: map(),
+    %% How the output of FFmpeg is cut: raw media in chunks of `size`
+    %% bytes, an IVF stream (its header first, then frames whose
+    %% timestamps count in units of Num/Den seconds), or H.264 access
+    %% units that each start with a delimiter.
+    format = raw :: raw | ivf_header | {ivf, pos_integer(), pos_integer()} | annexb,
+    codec :: undefined | vp8 | vp9 | av1 | h264,
     %% Bytes of one picture or one chunk of audio.
     size :: pos_integer(),
+    %% An encoded frame was dropped: those after it are of no use until
+    %% a key frame.
+    skip = false :: boolean(),
     buffer = <<>> :: binary(),
     %% Pictures or chunks read, and how many of them were dropped.
     count = 0 :: non_neg_integer(),
@@ -199,7 +251,7 @@ start(Source, Opts) when is_map(Opts) ->
 stop(Pid) ->
     gen_server:stop(Pid).
 
--doc "Pictures or chunks of audio captured so far, and how many of them were dropped.".
+-doc "Pictures, chunks of audio or encoded frames captured so far, and how many of them were dropped.".
 -spec stats(pid()) -> #{captured := non_neg_integer(), dropped := non_neg_integer()}.
 stats(Pid) ->
     gen_server:call(Pid, stats).
@@ -215,12 +267,20 @@ init({Source, Opts0}) ->
             tmp_dir(),
             "webrtc_codecs_capture-" ++ integer_to_list(erlang:unique_integer([positive]))
         ),
-        Args = ["-nostdin", "-hide_banner", "-loglevel", "error"] ++ Input ++ output(Kind, Opts),
+        {ok, Format, Codec, Output} ?= output(Kind, maps:get(encode, Opts, undefined), Opts),
+        Args = ["-nostdin", "-hide_banner", "-loglevel", "error"] ++ Input ++ Output,
         Port = open(Ffmpeg, Args, Log),
         Owner = maps:get(owner, Opts),
         _ = monitor(process, Owner),
         {ok, #st{
-            port = Port, owner = Owner, kind = Kind, opts = Opts, size = size(Kind, Opts), log = Log
+            port = Port,
+            owner = Owner,
+            kind = Kind,
+            opts = Opts,
+            format = Format,
+            codec = Codec,
+            size = size(Kind, Opts),
+            log = Log
         }}
     else
         {error, Reason} -> {stop, Reason}
@@ -328,14 +388,73 @@ device_input(_, audio, Device) ->
 device_name(Index) when is_integer(Index) -> integer_to_list(Index);
 device_name(Name) -> unicode:characters_to_list(Name).
 
-%% What FFmpeg writes to its standard output: planes or samples, nothing
-%% else.
-output(video, #{frame_rate := Fps} = Opts) ->
-    Format = ["-pix_fmt", "yuv420p", "-s", picture_size(Opts), "-r", integer_to_list(Fps)],
-    ["-map", "0:v:0", "-an"] ++ Format ++ ["-f", "rawvideo", "pipe:1"];
-output(audio, #{sample_rate := Rate, channels := Channels}) ->
+%% What FFmpeg writes to its standard output, and how it is cut: planes
+%% or samples, or with `encode` an encoded stream.
+output(Kind, undefined, Opts) ->
+    {ok, raw, undefined, raw_output(Kind, Opts)};
+output(video, #{codec := Codec} = Encode, Opts) when
+    Codec =:= vp8; Codec =:= vp9; Codec =:= av1; Codec =:= h264
+->
+    Bitrate = maps:get(bitrate, Encode, 1000000),
+    Interval = maps:get(keyframe_interval, Encode, 60),
+    Encoder = maps:get(encoder, Encode, default_encoder(Codec, os:type())),
+    Tuning = maps:get(encoder_options, Encode, encoder_options(Encoder)),
+    Valid =
+        is_integer(Bitrate) andalso Bitrate > 0 andalso is_integer(Interval) andalso Interval > 0 andalso
+            is_list(Encoder) andalso is_list(Tuning),
+    case Valid of
+        true ->
+            Rate = ["-b:v", integer_to_list(Bitrate), "-g", integer_to_list(Interval), "-bf", "0"],
+            {Format, Container} = container(Codec),
+            Args =
+                picture_output(Opts) ++ ["-c:v", Encoder] ++ Tuning ++ Rate ++
+                    Container,
+            {ok, Format, Codec, Args ++ ["pipe:1"]};
+        false ->
+            {error, {badarg, Encode}}
+    end;
+output(_Kind, Encode, _Opts) ->
+    {error, {badarg, {encode, Encode}}}.
+
+raw_output(video, Opts) ->
+    picture_output(Opts) ++ ["-f", "rawvideo", "pipe:1"];
+raw_output(audio, #{sample_rate := Rate, channels := Channels}) ->
     Format = ["-ac", integer_to_list(Channels), "-ar", integer_to_list(Rate)],
     ["-map", "0:a:0", "-vn"] ++ Format ++ ["-f", "s16le", "pipe:1"].
+
+%% The first video stream, as 4:2:0 pictures of the size and rate asked for.
+picture_output(#{frame_rate := Fps} = Opts) ->
+    Format = ["-pix_fmt", "yuv420p", "-s", picture_size(Opts), "-r", integer_to_list(Fps)],
+    ["-map", "0:v:0", "-an"] ++ Format.
+
+default_encoder(vp8, _Os) -> "libvpx";
+default_encoder(vp9, _Os) -> "libvpx-vp9";
+default_encoder(av1, _Os) -> "libsvtav1";
+default_encoder(h264, {unix, darwin}) -> "h264_videotoolbox";
+default_encoder(h264, _Os) -> "libopenh264".
+
+%% Real time settings of the encoders named above; none for another one.
+encoder_options("libvpx") ->
+    ["-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0"];
+encoder_options("libvpx-vp9") ->
+    ["-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0", "-row-mt", "1"];
+encoder_options("libsvtav1") ->
+    ["-preset", "10", "-svtav1-params", "pred-struct=1:rc=2"];
+encoder_options("h264_videotoolbox") ->
+    ["-realtime", "1", "-profile:v", "constrained_baseline"];
+encoder_options("libopenh264") ->
+    ["-profile:v", "constrained_baseline"];
+encoder_options(_Encoder) ->
+    [].
+
+%% VP8, VP9 and AV1 come as IVF, which frames them and carries their
+%% timestamps. H.264 comes in Annex B with a delimiter before each
+%% access unit, which is what separates them.
+%% Each frame is written as soon as it is made, not when a buffer fills.
+container(h264) ->
+    {annexb, ["-bsf:v", "h264_metadata=aud=insert", "-flush_packets", "1", "-f", "h264"]};
+container(_Codec) ->
+    {ivf_header, ["-flush_packets", "1", "-f", "ivf"]}.
 
 size(video, #{width := W, height := H}) ->
     W * H * 3 div 2;
@@ -364,8 +483,15 @@ handle_cast(_Msg, St) ->
     {noreply, St}.
 
 -doc false.
-handle_info({Port, {data, Data}}, #st{port = Port, buffer = Buffer} = St) ->
-    {noreply, deliver(<<Buffer/binary, Data/binary>>, St)};
+handle_info({Port, {data, Data}}, #st{port = Port, owner = Owner, buffer = Buffer} = St) ->
+    case deliver(<<Buffer/binary, Data/binary>>, St) of
+        #st{} = St1 ->
+            {noreply, St1};
+        bad_stream ->
+            %% What FFmpeg writes is not the stream that was asked for.
+            Owner ! {webrtc_capture, self(), {error, bad_stream}},
+            {stop, normal, St}
+    end;
 handle_info({Port, {exit_status, Status}}, #st{port = Port, owner = Owner, log = Log} = St) ->
     Said =
         case file:read_file(Log) of
@@ -398,25 +524,90 @@ close(Port) ->
         error:badarg -> true
     end.
 
-%% Cut what was read into pictures or chunks and send them, unless the
-%% owner is behind.
-deliver(Buffer, #st{size = Size} = St) when byte_size(Buffer) < Size ->
-    St#st{buffer = Buffer};
-deliver(
-    Buffer, #st{size = Size, owner = Owner, count = Count, dropped = Dropped, opts = Opts} = St
-) ->
+%% An encoded frame larger than this is not one: the stream is not what
+%% it should be.
+-define(MAX_FRAME, 8 * 1024 * 1024).
+
+%% Cut what was read into pictures, chunks or encoded frames and send
+%% them, unless the owner is behind.
+deliver(Buffer, #st{format = raw, size = Size} = St) when byte_size(Buffer) >= Size ->
     <<Chunk:Size/binary, Rest/binary>> = Buffer,
-    Behind =
-        case erlang:process_info(Owner, message_queue_len) of
-            {message_queue_len, Len} -> Len > maps:get(max_queue, Opts);
-            undefined -> true
-        end,
-    case Behind of
+    #st{count = Count, dropped = Dropped} = St,
+    case behind(St) of
         true ->
             deliver(Rest, St#st{count = Count + 1, dropped = Dropped + 1});
         false ->
-            Owner ! {webrtc_capture, self(), raw(Chunk, Count, St)},
+            St#st.owner ! {webrtc_capture, self(), raw(Chunk, Count, St)},
             deliver(Rest, St#st{count = Count + 1})
+    end;
+deliver(
+    <<"DKIF", _:12/binary, Den:32/little, Num:32/little, _:64, Rest/binary>>,
+    #st{format = ivf_header} = St
+) ->
+    deliver(Rest, St#st{format = {ivf, max(Num, 1), max(Den, 1)}});
+deliver(
+    <<Size:32/little, Pts:64/little, Data:Size/binary, Rest/binary>>,
+    #st{format = {ivf, Num, Den}} = St
+) ->
+    Ts = (Pts * 90000 * Num div Den) band 16#FFFFFFFF,
+    deliver(Rest, encoded(Data, Ts, St));
+deliver(<<Size:32/little, _/binary>>, #st{format = {ivf, _, _}}) when Size > ?MAX_FRAME ->
+    bad_stream;
+deliver(Buffer, #st{format = annexb, count = Count, opts = #{frame_rate := Fps}} = St) ->
+    %% An access unit ends where the delimiter of the next one starts:
+    %% a start code and a NAL unit of type 9, looked for past the unit's
+    %% own. A start code of four bytes begins one byte earlier.
+    case
+        byte_size(Buffer) > 8 andalso
+            binary:match(Buffer, <<0, 0, 1, 9>>, [{scope, {4, byte_size(Buffer) - 4}}])
+    of
+        {Found, _} ->
+            Pos =
+                case binary:at(Buffer, Found - 1) of
+                    0 -> Found - 1;
+                    _ -> Found
+                end,
+            <<Unit:Pos/binary, Rest/binary>> = Buffer,
+            Ts = (Count * 90000 div Fps) band 16#FFFFFFFF,
+            deliver(Rest, encoded(Unit, Ts, St));
+        _ when byte_size(Buffer) > ?MAX_FRAME ->
+            bad_stream;
+        _ ->
+            St#st{buffer = Buffer}
+    end;
+deliver(Buffer, St) ->
+    St#st{buffer = Buffer}.
+
+behind(#st{owner = Owner, opts = Opts}) ->
+    case erlang:process_info(Owner, message_queue_len) of
+        {message_queue_len, Len} -> Len > maps:get(max_queue, Opts);
+        undefined -> true
+    end.
+
+%% Send an encoded frame. After one is dropped, the frames that depend
+%% on it are dropped too, up to the next key frame.
+encoded(Data, Ts, #st{codec = Codec, count = Count, dropped = Dropped, skip = Skip} = St) ->
+    Key = keyframe(Codec, Data),
+    case behind(St) orelse (Skip andalso not Key) of
+        true ->
+            St#st{count = Count + 1, dropped = Dropped + 1, skip = true};
+        false ->
+            St#st.owner !
+                {webrtc_capture, self(), #{
+                    codec => Codec, data => Data, timestamp => Ts, keyframe => Key
+                }},
+            St#st{count = Count + 1, skip = false}
+    end.
+
+keyframe(av1, Data) ->
+    webrtc_codecs_av1:frame_info(av1, Data) =:= key;
+keyframe(h264, Data) ->
+    %% An IDR slice: NAL unit type 5, whatever its reference bits.
+    binary:match(Data, [<<0, 0, 1, 16#65>>, <<0, 0, 1, 16#45>>, <<0, 0, 1, 16#25>>]) =/= nomatch;
+keyframe(Codec, Data) ->
+    case webrtc_codecs_vpx:frame_size(Codec, Data) of
+        {key, _, _} -> true;
+        _ -> false
     end.
 
 %% Pictures are numbered in the 90 kHz clock from the rate asked for, so

@@ -26,7 +26,13 @@ capture_test_() ->
                     {"a missing file is an error", fun missing_file/0},
                     {"stops with its owner", fun stops_with_owner/0},
                     {"bad options", fun bad_options/0},
-                    {"devices", fun devices/0}
+                    {"devices", fun devices/0},
+                    {"encoded VP8", fun() -> encoded(vp8, "libvpx") end},
+                    {"encoded VP9", fun() -> encoded(vp9, "libvpx-vp9") end},
+                    {"encoded AV1", fun() -> encoded(av1, "libsvtav1") end},
+                    {"encoded H.264", fun encoded_h264/0},
+                    {"encoded frames dropped up to a key frame", fun encoded_slow_owner/0},
+                    {"bad encode options", fun bad_encode/0}
                 ]
             ]
     end.
@@ -181,6 +187,152 @@ devices() ->
         ?assertMatch(#{index := I, name := <<_/binary>>} when is_integer(I), D)
      || D <- Video ++ Audio
     ].
+
+%% The encoders this FFmpeg has.
+has_encoder(Name) ->
+    Encoders = os:cmd("ffmpeg -hide_banner -encoders 2>/dev/null"),
+    string:find(Encoders, " " ++ Name ++ " ") =/= nomatch.
+
+%% FFmpeg captures and encodes: the frames come with timestamps in the
+%% 90 kHz clock, start with a key frame, and decode with the plugin of
+%% the codec when it is built.
+encoded(Codec, Encoder) ->
+    case has_encoder(Encoder) of
+        false ->
+            ok;
+        true ->
+            {ok, Pid} = ?M:start({test, video}, #{
+                width => 160,
+                height => 120,
+                frame_rate => 30,
+                encode => #{codec => Codec, bitrate => 300000}
+            }),
+            Frames = take(Pid, 10),
+            ok = ?M:stop(Pid),
+            ?assertEqual([I * 3000 || I <- lists:seq(0, 9)], [T || #{timestamp := T} <- Frames]),
+            ?assertEqual([true | lists:duplicate(9, false)], [K || #{keyframe := K} <- Frames]),
+            ?assert(
+                lists:all(
+                    fun(#{codec := C, data := D}) -> C =:= Codec andalso byte_size(D) > 0 end,
+                    Frames
+                )
+            ),
+            decodes(Codec, Frames)
+    end.
+
+decodes(Codec, Frames) ->
+    {Mod, Name, Built} =
+        case Codec of
+            vp8 -> {webrtc_codecs_vpx, <<"VP8">>, webrtc_codecs_vpx_nif:loaded()};
+            vp9 -> {webrtc_codecs_vpx, <<"VP9">>, webrtc_codecs_vpx_nif:loaded()};
+            av1 -> {webrtc_codecs_av1, <<"AV1">>, webrtc_codecs_dav1d_nif:loaded()}
+        end,
+    case Built of
+        true ->
+            {ok, St} = Mod:init(video, #{name => Name}, #{}),
+            {Pictures, _, _} = webrtc_codecs_test_media:decode_all(Mod, Frames, St),
+            ?assertEqual(
+                10, length([P || #{format := i420, width := 160, height := 120} = P <- Pictures])
+            );
+        false ->
+            ok
+    end.
+
+%% H.264 comes as access units in Annex B, each starting with its
+%% delimiter, the first holding the parameter sets and an IDR slice.
+encoded_h264() ->
+    Encoder =
+        case os:type() of
+            {unix, darwin} -> "h264_videotoolbox";
+            _ -> "libopenh264"
+        end,
+    case has_encoder(Encoder) of
+        false ->
+            ok;
+        true ->
+            {ok, Pid} = ?M:start({test, video}, #{
+                width => 320,
+                height => 240,
+                frame_rate => 30,
+                encode => #{codec => h264, keyframe_interval => 5}
+            }),
+            Units = take(Pid, 10),
+            ok = ?M:stop(Pid),
+            ?assertEqual([I * 3000 || I <- lists:seq(0, 9)], [T || #{timestamp := T} <- Units]),
+            ?assertEqual(
+                [true, false, false, false, false, true, false, false, false, false], [
+                    K
+                 || #{keyframe := K} <- Units
+                ]
+            ),
+            [
+                begin
+                    ?assertMatch(<<0, 0, 0, 1, 9, _/binary>>, Data),
+                    %% One delimiter, so one access unit.
+                    ?assertEqual(1, length(binary:matches(Data, <<0, 0, 1, 9>>)))
+                end
+             || #{codec := h264, data := Data} <- Units
+            ],
+            %% SPS (7) and PPS (8) come with the first key frame.
+            Types = [T band 31 || T <- nal_types(maps:get(data, hd(Units)))],
+            ?assert(
+                lists:member(7, Types) andalso lists:member(8, Types) andalso lists:member(5, Types)
+            )
+    end.
+
+nal_types(Data) ->
+    [
+        binary:at(Data, Pos + 3)
+     || {Pos, 3} <- binary:matches(Data, <<0, 0, 1>>), Pos + 3 < byte_size(Data)
+    ].
+
+%% The owner reads nothing: frames are dropped, and what it finds
+%% waiting starts with a key frame.
+encoded_slow_owner() ->
+    case has_encoder("libvpx") of
+        false ->
+            ok;
+        true ->
+            {ok, Pid} = ?M:start({test, video}, #{
+                width => 64,
+                height => 48,
+                frame_rate => 60,
+                max_queue => 3,
+                encode => #{codec => vp8, keyframe_interval => 10}
+            }),
+            timer:sleep(1500),
+            #{captured := Captured, dropped := Dropped} = ?M:stats(Pid),
+            ?assert(Dropped > 0),
+            %% What waits starts with a key frame, and a frame that is not
+            %% one only ever follows the frame before it.
+            Waiting = take(Pid, 4),
+            ok = ?M:stop(Pid),
+            ?assert(Captured > 20),
+            ?assertMatch([#{keyframe := true} | _], Waiting),
+            ?assert(
+                lists:all(
+                    fun({#{timestamp := T0}, #{timestamp := T1, keyframe := K}}) ->
+                        K orelse T1 =:= T0 + 1500
+                    end,
+                    lists:zip(lists:droplast(Waiting), tl(Waiting))
+                )
+            )
+    end.
+
+bad_encode() ->
+    process_flag(trap_exit, true),
+    [
+        ?assertMatch({error, {badarg, _}}, ?M:start(Source, #{encode => Encode}))
+     || {Source, Encode} <- [
+            {{test, video}, #{codec => h265}},
+            {{test, video}, #{codec => vp8, bitrate => 0}},
+            {{test, video}, #{codec => vp8, encoder => libvpx}},
+            {{test, video}, vp8},
+            {{test, audio}, #{codec => vp8}}
+        ]
+    ],
+    process_flag(trap_exit, false),
+    flush().
 
 flush() ->
     receive
