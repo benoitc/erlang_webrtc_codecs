@@ -2,7 +2,7 @@
 %% (test/corpora/frames), and FFmpeg as a reference decoder.
 -module(webrtc_codecs_test_media).
 
--export([corpus/1, ivf/1, reference/3, frames/2, decode_all/3, sum/2]).
+-export([corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
 
 %% The path of a corpus file, or false when the dependency was fetched
 %% without its tests.
@@ -46,6 +46,28 @@ reference(Path, W, H) ->
                 #{format => i420, width => W, height => H, y => Y, u => U, v => V}
              || <<Y:(W * H)/binary, U:(Cw * Ch)/binary, V:(Cw * Ch)/binary>> <= Raw
             ]
+    end.
+
+%% Twelve 176 x 144 pictures of FFmpeg's test source encoded with the
+%% given output options, as erlang_webrtc's corpus is made: the path of
+%% a temporary file to delete, or false without ffmpeg or its encoder.
+ffmpeg_encode(Options, Extension) ->
+    case os:find_executable("ffmpeg") of
+        false ->
+            false;
+        Ffmpeg ->
+            File = string:trim(os:cmd("mktemp")) ++ Extension,
+            Cmd = io_lib:format(
+                "'~ts' -v error -y -f lavfi -i testsrc=size=176x144:rate=30 -frames:v 12 ~s '~ts' 2>&1",
+                [Ffmpeg, Options, File]
+            ),
+            case os:cmd(lists:flatten(Cmd)) of
+                "" ->
+                    File;
+                _ ->
+                    _ = file:delete(File),
+                    false
+            end
     end.
 
 %% Encoded frames as decode/2 takes them, 30 per second from timestamp 0.

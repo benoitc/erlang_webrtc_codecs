@@ -115,8 +115,10 @@ max_pixels(#st{opts = Opts}) ->
 decode(#{data := Data, timestamp := Ts}, #st{impl = Impl, codec = Codec, need_key = NeedKey} = St) ->
     Max = max_pixels(St),
     case Impl:frame_info(Codec, Data) of
-        {error, Reason} -> dropped(Reason, Ts, St);
-        {_, W, H} when W * H > Max -> dropped(too_large, Ts, St);
+        %% A frame that is not decoded leaves the frames after it without
+        %% their reference.
+        {error, Reason} -> dropped(Reason, Ts, St#st{need_key = true});
+        {_, W, H} when W * H > Max -> dropped(too_large, Ts, St#st{need_key = true});
         {key, _, _} -> decode1(Data, Ts, true, St#st{need_key = false});
         key -> decode1(Data, Ts, true, St#st{need_key = false});
         _ when NeedKey -> dropped(waiting_for_keyframe, Ts, St);
