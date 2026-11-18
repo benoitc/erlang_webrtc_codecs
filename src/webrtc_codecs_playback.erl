@@ -113,6 +113,9 @@ init({Sink, Opts0}) ->
             tmp_dir(),
             "webrtc_codecs_playback-" ++ integer_to_list(erlang:unique_integer([positive]))
         ),
+        %% A program that ends closes the port under us: that is told to
+        %% play/2, not a reason to die.
+        process_flag(trap_exit, true),
         Port = open(Exe, Args, Log),
         OsPid =
             case erlang:port_info(Port, os_pid) of
@@ -268,17 +271,24 @@ handle_cast(_Msg, St) ->
     {noreply, St}.
 
 -doc false.
-handle_info({Port, {exit_status, Status}}, #st{port = Port, log = Log} = St) ->
+handle_info({Port, {exit_status, Status}}, #st{port = Port} = St) ->
     %% The program ended by itself: a closed window, or an error. The
     %% process stays to tell play/2 why, until stop/1.
+    {noreply, ended(Status, St)};
+handle_info({'EXIT', Port, _Reason}, #st{port = Port, ended = undefined} = St) ->
+    %% The port went before it told the status, on a write to a program
+    %% that was gone.
+    {noreply, ended(-1, St)};
+handle_info(_Info, St) ->
+    {noreply, St}.
+
+ended(Status, #st{log = Log} = St) ->
     Said =
         case file:read_file(Log) of
             {ok, Text} -> string:trim(Text);
             {error, _} -> <<>>
         end,
-    {noreply, St#st{ended = {Status, Said}, os_pid = undefined}};
-handle_info(_Info, St) ->
-    {noreply, St}.
+    St#st{ended = {Status, Said}, os_pid = undefined}.
 
 %% Closing the port closes the program's input: ffplay ends, FFmpeg
 %% finishes the file. The port tells nothing after that, so wait for

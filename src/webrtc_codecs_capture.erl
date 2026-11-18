@@ -269,6 +269,8 @@ init({Source, Opts0}) ->
         ),
         {ok, Format, Codec, Output} ?= output(Kind, maps:get(encode, Opts, undefined), Opts),
         Args = ["-nostdin", "-hide_banner", "-loglevel", "error"] ++ Input ++ Output,
+        %% FFmpeg ending is told to the owner, not a reason to die.
+        process_flag(trap_exit, true),
         Port = open(Ffmpeg, Args, Log),
         Owner = maps:get(owner, Opts),
         _ = monitor(process, Owner),
@@ -504,6 +506,9 @@ handle_info({Port, {exit_status, Status}}, #st{port = Port, owner = Owner, log =
             _ -> {error, {ffmpeg, Status, Said}}
         end,
     Owner ! {webrtc_capture, self(), Result},
+    {stop, normal, St};
+handle_info({'EXIT', Port, Reason}, #st{port = Port, owner = Owner} = St) when Reason =/= normal ->
+    Owner ! {webrtc_capture, self(), {error, {port, Reason}}},
     {stop, normal, St};
 handle_info({'DOWN', _, process, Owner, _}, #st{owner = Owner} = St) ->
     {stop, normal, St};
