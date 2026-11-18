@@ -1,0 +1,10 @@
+# Linux image the tests run in (scripts/test-linux.sh): Erlang/OTP 29 on
+# Debian with the codec libraries, CMake and FFmpeg.
+FROM erlang:29
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake pkg-config ffmpeg \
+        libopus-dev libvpx-dev libopenh264-dev libdav1d-dev libaom-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src

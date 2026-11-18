@@ -5,12 +5,33 @@
 -export([corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
 
 %% The path of a corpus file, or false when the dependency was fetched
-%% without its tests.
+%% without its tests. erlang_webrtc is under _build as a fetched
+%% dependency and under _checkouts as a checkout. Where a build must
+%% have every codec (WEBRTC_CODECS_REQUIRE), a missing corpus is an
+%% error, so that its tests are not skipped without notice.
 corpus(File) ->
-    Path = filename:join([code:lib_dir(webrtc), "test", "corpora", "frames", File]),
-    case filelib:is_regular(Path) of
-        true -> Path;
-        false -> false
+    Dirs = [code:lib_dir(webrtc), filename:join([root(), "_checkouts", "webrtc"])],
+    Paths = [filename:join([Dir, "test", "corpora", "frames", File]) || Dir <- Dirs],
+    case {[P || P <- Paths, filelib:is_regular(P)], os:getenv("WEBRTC_CODECS_REQUIRE")} of
+        {[Path | _], _} -> Path;
+        {[], Required} when Required =:= false; Required =:= "" -> false;
+        {[], _} -> error({no_corpus, Paths})
+    end.
+
+%% The directory of this package, from wherever the tests run.
+root() ->
+    {ok, Cwd} = file:get_cwd(),
+    up(Cwd).
+
+up("/") ->
+    "/";
+up(Dir) ->
+    case
+        filelib:is_dir(filename:join(Dir, "c_src")) andalso
+            filelib:is_regular(filename:join(Dir, "rebar.config"))
+    of
+        true -> Dir;
+        false -> up(filename:dirname(Dir))
     end.
 
 %% IVF: a 32 byte header, then per frame a 4 byte size and an 8 byte
