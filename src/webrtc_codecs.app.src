@@ -1,0 +1,10 @@
+{application, webrtc_codecs, [
+    {description, "Audio and video codec plugins for erlang_webrtc"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib, webrtc]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, [{"GitHub", "https://github.com/benoitc/erlang_webrtc_codecs"}]}
+]}.

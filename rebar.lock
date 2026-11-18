@@ -1,0 +1,4 @@
+[{<<"webrtc">>,
+  {git,"https://github.com/benoitc/erlang_webrtc.git",
+       {ref,"a09466e7a3c6689f52b4c9c699ee5d5d0482d111"}},
+  0}].
