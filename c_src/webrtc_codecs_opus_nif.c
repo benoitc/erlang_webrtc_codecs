@@ -95,17 +95,21 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         !valid_format(rate, channels))
         return enif_make_badarg(env);
 
-    d = enif_alloc_resource(decoder_type, sizeof(*d));
+    d = wc_fail() ? NULL : enif_alloc_resource(decoder_type, sizeof(*d));
     if (!d)
         return wc_error(env, "alloc_fail");
     memset(d, 0, sizeof(*d));
     d->rate = rate;
     d->channels = channels;
-    d->dec = opus_decoder_create(rate, channels, &err);
-    d->lock = enif_mutex_create("webrtc_codecs_opus_decoder");
+    err = OPUS_ALLOC_FAIL;
+    d->dec = wc_fail() ? NULL : opus_decoder_create(rate, channels, &err);
+    d->lock = wc_fail() ? NULL : enif_mutex_create("webrtc_codecs_opus_decoder");
     if (!d->dec || !d->lock) {
+        /* The reason is read before the release, which frees d. */
+        const char *reason = d->dec ? "alloc_fail" : opus_reason(err);
+
         enif_release_resource(d);
-        return wc_error(env, d->dec ? "alloc_fail" : opus_reason(err));
+        return wc_error(env, reason);
     }
     term = enif_make_resource(env, d);
     enif_release_resource(d);
@@ -239,17 +243,21 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     else
         return enif_make_badarg(env);
 
-    e = enif_alloc_resource(encoder_type, sizeof(*e));
+    e = wc_fail() ? NULL : enif_alloc_resource(encoder_type, sizeof(*e));
     if (!e)
         return wc_error(env, "alloc_fail");
     memset(e, 0, sizeof(*e));
     e->rate = rate;
     e->channels = channels;
-    e->enc = opus_encoder_create(rate, channels, application, &err);
-    e->lock = enif_mutex_create("webrtc_codecs_opus_encoder");
+    err = OPUS_ALLOC_FAIL;
+    e->enc = wc_fail() ? NULL : opus_encoder_create(rate, channels, application, &err);
+    e->lock = wc_fail() ? NULL : enif_mutex_create("webrtc_codecs_opus_encoder");
     if (!e->enc || !e->lock) {
+        /* The reason is read before the release, which frees e. */
+        const char *reason = e->enc ? "alloc_fail" : opus_reason(err);
+
         enif_release_resource(e);
-        return wc_error(env, e->enc ? "alloc_fail" : opus_reason(err));
+        return wc_error(env, reason);
     }
     err = encoder_apply(env, e, argv[3], &badarg);
     if (err != OPUS_OK) {
@@ -353,12 +361,13 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 }
 
 static ErlNifFunc nif_funcs[] = {
+    WC_FAULT_NIF
     {"version", 0, version, 0},
-    {"decoder_new", 2, decoder_new, 0},
+    {"decoder_new", 2, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode_fec", 3, decode_fec, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"conceal", 2, conceal, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-    {"encoder_new", 4, encoder_new, 0},
+    {"encoder_new", 4, encoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_set", 2, encoder_set, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_bitrate", 1, encoder_bitrate, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encode", 2, encode, ERL_NIF_DIRTY_JOB_CPU_BOUND},

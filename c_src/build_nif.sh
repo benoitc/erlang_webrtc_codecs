@@ -5,6 +5,8 @@
 # in Erlang. With cmake, a build that fails fails the compile.
 # WEBRTC_CODECS_SKIP_NIF=1 skips the build; WEBRTC_CODECS_REQUIRE="opus"
 # (pkg-config names, separated by ;) fails it when a library is missing.
+# WEBRTC_CODECS_FAULT_INJECTION=ON and WEBRTC_CODECS_SANITIZE=ON are for
+# tests (scripts/test-sanitizers.sh).
 set -e
 cd "$(dirname "$0")"
 
@@ -19,7 +21,9 @@ case "${1:-build}" in
             echo "webrtc_codecs: cmake not found, native codecs are not built" >&2
             exit 0
         fi
-        cmake -S . -B build -DWEBRTC_CODECS_REQUIRE="$WEBRTC_CODECS_REQUIRE" >build.log 2>&1 &&
+        cmake -S . -B build -DWEBRTC_CODECS_REQUIRE="$WEBRTC_CODECS_REQUIRE" \
+            -DWEBRTC_CODECS_FAULT_INJECTION="${WEBRTC_CODECS_FAULT_INJECTION:-OFF}" \
+            -DWEBRTC_CODECS_SANITIZE="${WEBRTC_CODECS_SANITIZE:-OFF}" >build.log 2>&1 &&
             cmake --build build >>build.log 2>&1 || {
             cat build.log >&2
             echo "webrtc_codecs: the native build failed; fix it or set WEBRTC_CODECS_SKIP_NIF=1" >&2

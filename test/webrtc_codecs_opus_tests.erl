@@ -280,3 +280,34 @@ bad_options() ->
     ),
     %% fmtp that is not a list of pairs is ignored.
     ?assertMatch({ok, _}, ?M:init(audio, Codec#{fmtp => [<<"x">>, {<<"stereo">>, <<"y">>}]}, #{})).
+
+%% Each allocation of the constructors failing in turn gives an error,
+%% not a crash; under the sanitizers, no access to freed memory. Needs a
+%% build with fault injection (scripts/test-sanitizers.sh).
+constructor_failures_test_() ->
+    Nif = webrtc_codecs_opus_nif,
+    Injection =
+        Nif:loaded() andalso
+            try Nif:fail_after(0) of
+                ok -> true
+            catch
+                error:nif_not_loaded -> false
+            end,
+    case Injection of
+        false ->
+            {"skipped: built without fault injection", []};
+        true ->
+            [
+                fun() ->
+                    ok = Nif:fail_after(N),
+                    ?assertMatch({error, _}, New()),
+                    ok = Nif:fail_after(0),
+                    ?assertMatch({ok, _}, New())
+                end
+             || New <- [
+                    fun() -> Nif:decoder_new(48000, 2) end,
+                    fun() -> Nif:encoder_new(48000, 2, voip, #{}) end
+                ],
+                N <- [1, 2, 3]
+            ]
+    end.

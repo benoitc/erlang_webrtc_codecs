@@ -33,6 +33,11 @@ endif()
 find_package(PkgConfig REQUIRED)
 
 set(WEBRTC_CODECS_REQUIRE "" CACHE STRING "Codec libraries that must be found")
+# For tests: let a test make an allocation in a constructor fail, and
+# build the NIFs with the address and undefined behaviour sanitizers
+# (scripts/test-sanitizers.sh). Never for a build you ship.
+option(WEBRTC_CODECS_FAULT_INJECTION "Build the fault injection hooks" OFF)
+option(WEBRTC_CODECS_SANITIZE "Build the NIFs with ASan and UBSan" OFF)
 
 # add_codec_nif(<nif name> <pkg-config module> <sources...>)
 function(add_codec_nif NAME PKG)
@@ -61,6 +66,13 @@ function(add_codec_nif NAME PKG)
   target_include_directories(${NAME} PRIVATE "${ERTS_INCLUDE_DIR}")
   target_link_libraries(${NAME} PRIVATE PkgConfig::${NAME}_DEP)
   target_compile_options(${NAME} PRIVATE -Wall -Wextra)
+  if(WEBRTC_CODECS_FAULT_INJECTION)
+    target_compile_definitions(${NAME} PRIVATE WEBRTC_CODECS_FAULT_INJECTION)
+  endif()
+  if(WEBRTC_CODECS_SANITIZE)
+    target_compile_options(${NAME} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1)
+    target_link_options(${NAME} PRIVATE -fsanitize=address,undefined)
+  endif()
 
   # The enif_* symbols are resolved by the emulator at load time, so the
   # link must tolerate them being undefined. ELF does by default; Mach-O

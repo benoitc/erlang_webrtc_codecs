@@ -57,4 +57,33 @@ static inline int wc_map_bool(ErlNifEnv *env, ERL_NIF_TERM map, const char *key,
     return 1;
 }
 
+/* Fault injection, for tests only (CMake option
+ * WEBRTC_CODECS_FAULT_INJECTION): fail_after(N) makes the Nth call of
+ * wc_fail() from then on answer 1, once. Constructors ask it before each
+ * allocation, so a test can make any one of them fail. Not thread safe:
+ * a test arms it and calls one constructor. */
+#ifdef WEBRTC_CODECS_FAULT_INJECTION
+static int wc_fail_countdown = 0;
+
+static inline int wc_fail(void)
+{
+    return wc_fail_countdown > 0 && --wc_fail_countdown == 0;
+}
+
+static ERL_NIF_TERM wc_fail_after(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    int count;
+    (void)argc;
+    if (!enif_get_int(env, argv[0], &count) || count < 0)
+        return enif_make_badarg(env);
+    wc_fail_countdown = count;
+    return wc_atom(env, "ok");
+}
+
+#define WC_FAULT_NIF {"fail_after", 1, wc_fail_after, 0},
+#else
+#define wc_fail() 0
+#define WC_FAULT_NIF
+#endif
+
 #endif
