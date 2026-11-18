@@ -3,6 +3,7 @@ _build/
 ebin/
 *.beam
 /c_src/build/
+/c_src/build.log
 /priv/*.so
 
 # Rebar3
