@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: OTP ${{ matrix.otp }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            otp: '29'
+            rebar3: 'nightly'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          rebar3-version: ${{ matrix.rebar3 }}
+
+      # The G.711 tests compare with FFmpeg and skip without it.
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build
+            ~/.cache/rebar3
+          key: ${{ runner.os }}-otp-${{ matrix.otp }}-${{ hashFiles('rebar.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-otp-${{ matrix.otp }}-
+
+      - name: Compile
+        run: rebar3 compile
+
+      - name: Check formatting
+        run: rebar3 fmt --check
+
+      - name: Unit tests
+        run: rebar3 eunit
+
+      - name: Peer connection suites
+        run: rebar3 ct
+
+      - name: Lint
+        run: rebar3 lint
+
+      - name: Xref
+        run: rebar3 xref
+
+      - name: Dialyzer
+        run: rebar3 dialyzer
+
+      - name: Docs
+        run: rebar3 ex_doc
