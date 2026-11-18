@@ -246,7 +246,14 @@ tick(Last, Most) ->
         tick(Now, max(Most, Now - Last - 1000))
     end.
 
-%% Resident memory of the emulator in kB, as the system counts it.
+%% Resident memory of the emulator in kB, as the system counts it: from
+%% /proc where there is one, since not every ps takes a process id.
 rss() ->
     erlang:garbage_collect(),
-    list_to_integer(string:trim(os:cmd("ps -o rss= -p " ++ os:getpid()))).
+    case file:read_file("/proc/self/status") of
+        {ok, Status} ->
+            {match, [Kb]} = re:run(Status, "VmRSS:\\s+([0-9]+) kB", [{capture, [1], list}]),
+            list_to_integer(Kb);
+        {error, _} ->
+            list_to_integer(string:trim(os:cmd("ps -o rss= -p " ++ os:getpid())))
+    end.
