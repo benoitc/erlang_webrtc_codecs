@@ -29,8 +29,10 @@ change, run the tests, and be able to answer questions about it yourself.
 
 ## Set up
 
-You need Erlang/OTP 29 or later and rebar3. Install `ffmpeg` to run the tests
-that compare with it; they skip themselves without it.
+You need Erlang/OTP 29 or later, rebar3, CMake, pkg-config and a C compiler,
+plus the codec libraries: libopus. A codec whose library is missing is left
+out and its tests skip themselves. Install `ffmpeg` to run the tests that
+compare with it; they skip themselves too.
 
 ```bash
 git clone https://github.com/benoitc/erlang_webrtc_codecs.git
@@ -72,7 +74,9 @@ wrong format, and a truncated or corrupt frame.
 1. Write `src/webrtc_codecs_<family>.erl` with the `webrtc_media_codec`
    behaviour and `codecs/0`, which lists the codecs the module can run in
    this build.
-2. Add the module to `?MODULES` in `src/webrtc_codecs.erl`.
+2. Add the module to `?MODULES` in `src/webrtc_codecs.erl`. For a native
+   codec, add the NIF to `c_src/CMakeLists.txt` with `add_codec_nif` and its
+   library to `WEBRTC_CODECS_REQUIRE` in the CI workflow.
 3. Follow [docs/raw-media.md](docs/raw-media.md) for what `decode/2` gives
    and `encode/2` takes, and the rules in [AGENTS.md](https://github.com/benoitc/erlang_webrtc_codecs/blob/main/AGENTS.md) for native
    code.

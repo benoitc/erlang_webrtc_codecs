@@ -8,13 +8,16 @@ media itself, rather than forward it.
 
 | Codec | Decode | Encode | Needs |
 |---|---|---|---|
+| Opus | yes | yes | libopus |
 | G.711 (PCMU, PCMA) | yes | yes | nothing, pure Erlang |
 
-Opus, VP8, VP9, H.264, AV1 and device capture are not there yet.
+VP8, VP9, H.264, AV1 and device capture are not there yet.
 
 ## Build and test
 
-You need Erlang/OTP 29 or later and rebar3.
+You need Erlang/OTP 29 or later and rebar3. For the native codecs you also
+need CMake, pkg-config, a C compiler and the library of each codec; a codec
+whose library is missing is left out of the build.
 
 ```sh
 rebar3 compile
@@ -55,12 +58,13 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 ## See which codecs this build has
 
 ```erlang
-[#{name := <<"PCMU">>, kind := audio, decode := true, encode := true} | _] = webrtc_codecs:available().
+[#{name := <<"opus">>, kind := audio, decode := true, encode := true} | _] = webrtc_codecs:available().
 ```
 
 ## Documentation
 
 - [Raw media](docs/raw-media.md): the pictures and audio you exchange with a plugin, bitrate and key frame requests
+- [Opus](docs/opus.md)
 - [G.711](docs/g711.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md)
 - [Contributing](CONTRIBUTING.md)

@@ -98,9 +98,17 @@ the plugin that calls the module of the negotiated codec.
 
 **Codec plugins:** one module per codec family, each with the
 `webrtc_media_codec` behaviour plus `codecs/0`, the codecs it can run in this
-build (none when its native library is missing). `webrtc_codecs_g711.erl`
-(PCMU and PCMA, pure Erlang). To add one, write the module and add it to
+build (none when its native library is missing). `webrtc_codecs_opus.erl`
+(libopus), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
 `?MODULES` in `webrtc_codecs.erl`.
+
+**Native code:** `c_src/CMakeLists.txt` builds one NIF per codec library
+pkg-config finds, into `priv/`; `c_src/build_nif.sh` runs it from the rebar3
+compile hook. Each NIF has a private Erlang module, `webrtc_codecs_<lib>_nif`,
+that loads without it: `loaded/0` is then false and the codec is not listed.
+`c_src/webrtc_codecs_nif.h` holds the helpers the NIFs share.
+`WEBRTC_CODECS_REQUIRE="opus"` fails the build when a library is missing,
+`WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR
 and SNR).
@@ -119,7 +127,9 @@ What `decode/2` gives and `encode/2` takes, see
 ### Test Organization
 
 - `test/webrtc_codecs_*_tests.erl`: EUnit, the modules on their own. Tests
-  that compare with FFmpeg skip themselves when `ffmpeg` is not installed.
+  that compare with FFmpeg skip themselves when `ffmpeg` is not installed,
+  and the tests of a native codec when its library was not there at build
+  time. CI sets `WEBRTC_CODECS_REQUIRE` so that a skip there is a failure.
 - `test/webrtc_codecs_*_SUITE.erl`: Common Test, the plugins inside two
   erlang_webrtc peer connections on loopback.
 

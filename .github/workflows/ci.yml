@@ -27,8 +27,8 @@ jobs:
           rebar3-version: ${{ matrix.rebar3 }}
 
       # The G.711 tests compare with FFmpeg and skip without it.
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg and the codec libraries
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg cmake pkg-config libopus-dev
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -40,7 +40,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-otp-${{ matrix.otp }}-
 
+      # A codec library that is missing fails the build here, so no native
+      # test is skipped without notice.
       - name: Compile
+        env:
+          WEBRTC_CODECS_REQUIRE: opus
         run: rebar3 compile
 
       - name: Check formatting
