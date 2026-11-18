@@ -71,3 +71,4 @@ function(add_codec_nif NAME PKG)
 endfunction()
 
 add_codec_nif(webrtc_codecs_opus_nif opus webrtc_codecs_opus_nif.c)
+add_codec_nif(webrtc_codecs_vpx_nif vpx webrtc_codecs_vpx_nif.c)
