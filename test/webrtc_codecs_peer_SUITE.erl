@@ -4,9 +4,9 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1]).
+-export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9].
+all() -> [pcmu, pcma, opus, vp8, vp9, av1].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -105,18 +105,31 @@ vp9(_Config) -> vpx(<<"VP9">>).
 
 vpx(Name) ->
     case webrtc_codecs_vpx_nif:loaded() of
-        true -> video(Name, <<"libvpx ", (webrtc_codecs_vpx_nif:version())/binary>>);
-        false -> {skip, "built without libvpx"}
+        true ->
+            Implementation = <<"libvpx ", (webrtc_codecs_vpx_nif:version())/binary>>,
+            video(Name, Implementation, Implementation);
+        false ->
+            {skip, "built without libvpx"}
+    end.
+
+av1(_Config) ->
+    case webrtc_codecs_aom_nif:loaded() andalso webrtc_codecs_dav1d_nif:loaded() of
+        true ->
+            video(
+                <<"AV1">>,
+                <<"libaom ", (webrtc_codecs_aom_nif:version())/binary>>,
+                <<"dav1d ", (webrtc_codecs_dav1d_nif:version())/binary>>
+            );
+        false ->
+            {skip, "built without libaom or dav1d"}
     end.
 
 %% A encodes a second of the test pattern with send_media/3; B decodes
 %% every picture, close to what was sent, and the frames encoded and
 %% decoded agree in the statistics of both.
-video(Name, Implementation) ->
+video(Name, Encoder, Decoder) ->
     Plugin = {webrtc_codecs, #{bitrate => 400000}},
-    Codecs = #{
-        video => [C || #{name := N} = C <- webrtc_jsep_caps:default_codecs(video), N =:= Name]
-    },
+    Codecs = #{video => only(Name, webrtc_jsep_caps:default_codecs(video))},
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
         loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
@@ -160,7 +173,7 @@ video(Name, Implementation) ->
             framesEncoded := Count,
             keyFramesEncoded := 1,
             targetBitrate := 400000,
-            encoderImplementation := Implementation
+            encoderImplementation := Encoder
         }
     ] =
         [
@@ -174,7 +187,7 @@ video(Name, Implementation) ->
             framesDecoded := Count,
             keyFramesDecoded := 1,
             framesReceived := Count,
-            decoderImplementation := Implementation
+            decoderImplementation := Decoder
         }
     ] =
         [
@@ -185,6 +198,12 @@ video(Name, Implementation) ->
         ],
     ok = webrtc:close(A),
     ok = webrtc:close(B).
+
+%% One codec of a list, with its retransmission format (RFC 4588).
+only(Name, Codecs) ->
+    [#{pt := Pt} = Codec] = [C || #{name := N} = C <- Codecs, N =:= Name],
+    Apt = integer_to_binary(Pt),
+    [Codec | [C || #{name := <<"rtx">>, fmtp := [{<<"apt">>, A}]} = C <- Codecs, A =:= Apt]].
 
 %% Offer from A, answer from B, candidates relayed until both connect.
 connect(A, B) ->
