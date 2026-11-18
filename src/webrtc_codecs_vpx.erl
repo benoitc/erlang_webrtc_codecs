@@ -33,7 +33,7 @@ Options:
 
 -export([codecs/0]).
 -export([init/3, decode/2, encode/2, info/1]).
--export([frame_size/2]).
+-export([frame_size/2, superframe/1]).
 %% webrtc_codecs_video callbacks
 -export([
     frame_info/2,
@@ -157,14 +157,109 @@ vp9_size(_Kind, _) -> {error, invalid_frame}.
 %% webrtc_codecs_video callbacks
 
 -doc false.
-frame_info(Codec, Frame) -> frame_size(Codec, Frame).
+frame_info(vp8, Frame) ->
+    frame_size(vp8, Frame);
+frame_info(vp9, Frame) ->
+    %% libvpx decodes every frame of a superframe in one call, the ones
+    %% that are not shown included: each has to be within the limit.
+    case superframe(Frame) of
+        {ok, Frames} -> largest([frame_size(vp9, F) || F <- Frames]);
+        none -> frame_size(vp9, Frame);
+        error -> {error, invalid_frame}
+    end.
+
+%% What a superframe is as a whole: a key frame when its first frame is
+%% one, the largest size any of its frames sets, an error when any of
+%% them is one.
+largest([First | _] = Infos) ->
+    Kind =
+        case First of
+            {key, _, _} -> key;
+            _ -> inter
+        end,
+    Errors = [E || {error, _} = E <- Infos],
+    Sizes = [{W * H, W, H} || {_, W, H} <- Infos],
+    case {Errors, Sizes} of
+        {[Error | _], _} ->
+            Error;
+        {[], []} ->
+            Kind;
+        {[], _} ->
+            {_, W, H} = lists:max(Sizes),
+            {Kind, W, H}
+    end.
 
 -doc false.
 decoder_new(Codec, Threads, MaxPixels) ->
-    webrtc_codecs_vpx_nif:decoder_new(Codec, Threads, MaxPixels).
+    case webrtc_codecs_vpx_nif:decoder_new(Codec, Threads, MaxPixels) of
+        {ok, Decoder} -> {ok, {Codec, Decoder}};
+        {error, _} = Error -> Error
+    end.
 
 -doc false.
-decoder_decode(Decoder, Frame) -> webrtc_codecs_vpx_nif:decode(Decoder, Frame).
+decoder_decode({vp8, Decoder}, Frame) ->
+    webrtc_codecs_vpx_nif:decode(Decoder, Frame);
+decoder_decode({vp9, Decoder}, Frame) ->
+    %% Given a buffer without a superframe index, libvpx decodes one
+    %% frame and goes on with whatever follows it, which nothing has
+    %% checked. An index that declares a single frame makes it stop
+    %% after the one whose header was read.
+    case superframe(Frame) of
+        {ok, _} ->
+            webrtc_codecs_vpx_nif:decode(Decoder, Frame);
+        none ->
+            webrtc_codecs_vpx_nif:decode(
+                Decoder, <<Frame/binary, (single_index(byte_size(Frame)))/binary>>
+            );
+        error ->
+            {error, invalid_frame}
+    end.
+
+%% A superframe index for one frame of Size bytes, with sizes on four bytes.
+single_index(Size) ->
+    Marker = 2#11011000,
+    <<Marker, Size:32/little, Marker>>.
+
+-doc """
+The frames of a VP9 superframe (VP9 bitstream annex B): `none` when the
+data has no superframe index, `error` when it has one that does not fit
+the data. The index is at the end: a marker byte `110` with the number
+of bytes per size and the number of frames, the sizes, and the marker
+again.
+""".
+-spec superframe(binary()) -> {ok, [binary()]} | none | error.
+superframe(<<>>) ->
+    none;
+superframe(Data) ->
+    Size = byte_size(Data),
+    case binary:last(Data) of
+        Marker when Marker bsr 5 =:= 2#110 ->
+            Frames = (Marker band 7) + 1,
+            Bytes = ((Marker bsr 3) band 3) + 1,
+            IndexSize = 2 + Bytes * Frames,
+            case Size >= IndexSize andalso binary:at(Data, Size - IndexSize) =:= Marker of
+                true ->
+                    Sizes = [
+                        S
+                     || <<S:Bytes/little-unit:8>> <= binary:part(
+                            Data, Size - IndexSize + 1, Bytes * Frames
+                        )
+                    ],
+                    split(Sizes, binary:part(Data, 0, Size - IndexSize), []);
+                false ->
+                    none
+            end;
+        _ ->
+            none
+    end.
+
+split([], _Rest, Acc) ->
+    {ok, lists:reverse(Acc)};
+split([Size | Sizes], Rest, Acc) when Size > 0, Size =< byte_size(Rest) ->
+    <<Frame:Size/binary, Rest1/binary>> = Rest,
+    split(Sizes, Rest1, [Frame | Acc]);
+split(_, _, _) ->
+    error.
 
 -doc false.
 encoder_new(Codec, Width, Height, Settings) ->

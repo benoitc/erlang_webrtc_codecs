@@ -136,3 +136,71 @@ options_test() ->
         false ->
             ok
     end.
+
+%% An intra-only VP9 frame header that declares 65536 x 65536.
+oversized() ->
+    <<2:2, 0:2, 0:1, 1:1, 0:1, 1:1, 1:1, 16#498342:24, 0:8, -1:32, 0:7, 0:64>>.
+
+%% A superframe: the frames, then an index of sizes on two bytes.
+superframe(Frames) ->
+    Marker = 2#11001000 bor (length(Frames) - 1),
+    Sizes = <<<<(byte_size(F)):16/little>> || F <- Frames>>,
+    <<(iolist_to_binary(Frames))/binary, Marker, Sizes/binary, Marker>>.
+
+superframe_index_test() ->
+    A = <<1, 2, 3>>,
+    B = <<4, 5>>,
+    ?assertEqual({ok, [A, B]}, ?M:superframe(superframe([A, B]))),
+    ?assertEqual(none, ?M:superframe(<<>>)),
+    ?assertEqual(none, ?M:superframe(<<1, 2, 3, 4>>)),
+    %% A last byte that looks like a marker without its twin: no index.
+    ?assertEqual(none, ?M:superframe(<<1, 2, 3, 2#11001001>>)),
+    %% An index whose sizes run past the data, or are zero.
+    Marker = 2#11001000,
+    ?assertEqual(error, ?M:superframe(<<1, 2, Marker, 9:16/little, Marker>>)),
+    ?assertEqual(error, ?M:superframe(<<1, 2, Marker, 0:16/little, Marker>>)),
+    ?assertEqual({error, invalid_frame}, ?M:frame_info(vp9, <<1, 2, Marker, 9:16/little, Marker>>)).
+
+%% Every frame of a superframe counts for the limit, not only the first:
+%% a small key frame followed by a frame that declares a huge picture is
+%% refused before libvpx sees it.
+superframe_limit_test() ->
+    case webrtc_codecs_vpx_nif:loaded() of
+        true ->
+            {[#{data := Key} = Frame], _, _} = ?C:encode(
+                ctx(vp9), 176, 144, [0], ?C:init(ctx(vp9), #{})
+            ),
+            ?assertEqual({key, 176, 144}, ?M:frame_info(vp9, Key)),
+            Bad = superframe([Key, oversized()]),
+            ?assertEqual({key, 65536, 65536}, ?M:frame_info(vp9, Bad)),
+            St0 = ?C:init(ctx(vp9), #{}),
+            {ok, [#{dropped := too_large}], Stats, St1} = ?M:decode(Frame#{data := Bad}, St0),
+            ?assertEqual(#{}, Stats),
+            %% No decoder was made: nothing was given to the library.
+            ?assertEqual(undefined, element(5, St1)),
+            %% A superframe whose frames all fit decodes.
+            {ok, [#{width := 176, height := 144}], _, _} = ?M:decode(
+                Frame#{data := superframe([Key])}, St0
+            );
+        false ->
+            ok
+    end.
+
+%% Without an index, libvpx would decode the frame and go on with what
+%% follows it. It is given the first frame only, so bytes after it are
+%% never read as a frame.
+trailing_frame_test() ->
+    case webrtc_codecs_vpx_nif:loaded() of
+        true ->
+            {[#{data := Key} = Frame, Next], _, _} = ?C:encode(
+                ctx(vp9), 176, 144, [0, 1], ?C:init(ctx(vp9), #{})
+            ),
+            Bad = <<Key/binary, (oversized())/binary>>,
+            ?assertEqual({key, 176, 144}, ?M:frame_info(vp9, Bad)),
+            {ok, [#{width := 176, height := 144}], #{framesDecoded := 1}, St} =
+                ?M:decode(Frame#{data := Bad}, ?C:init(ctx(vp9), #{})),
+            %% And the stream goes on.
+            {ok, [#{width := 176, height := 144}], _, _} = ?M:decode(Next, St);
+        false ->
+            ok
+    end.
