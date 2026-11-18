@@ -10,13 +10,14 @@ media itself, rather than forward it.
 |---|---|---|---|
 | Opus | yes | yes | libopus |
 | VP8, VP9 (profile 0) | yes | yes | libvpx |
+| H.264 (decodes baseline, main, high; encodes constrained baseline) | yes | yes | OpenH264 |
 | AV1 (main profile) | yes | yes | dav1d (decode), libaom (encode) |
 | G.711 (PCMU, PCMA) | yes | yes | nothing, pure Erlang |
 
 It also captures raw pictures and audio from a camera, a microphone or a
 file, and shows, plays or records what is decoded, through the `ffmpeg` and
-`ffplay` executables. FFmpeg can also encode what it captures, which is the
-way to send H.264 for now: an H.264 plugin is not there yet.
+`ffplay` executables. FFmpeg can also encode what it captures, hardware
+encoders included.
 
 ## Build and test
 
@@ -70,6 +71,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 
 - [Raw media](docs/raw-media.md): the pictures and audio you exchange with a plugin, bitrate and key frame requests
 - [VP8 and VP9](docs/vp8-vp9.md)
+- [H.264](docs/h264.md)
 - [AV1](docs/av1.md)
 - [Opus](docs/opus.md)
 - [G.711](docs/g711.md)

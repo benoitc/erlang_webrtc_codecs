@@ -101,7 +101,8 @@ the plugin that calls the module of the negotiated codec.
 `webrtc_media_codec` behaviour plus `codecs/0`, the codecs it can run in this
 build (none when its native library is missing). `webrtc_codecs_opus.erl`
 (libopus), `webrtc_codecs_vpx.erl` (VP8 and VP9, libvpx),
-`webrtc_codecs_av1.erl` (dav1d to decode, libaom to encode), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
+`webrtc_codecs_h264.erl` (OpenH264), `webrtc_codecs_av1.erl` (dav1d to
+decode, libaom to encode), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
 `?MODULES` in `webrtc_codecs.erl`.
 
 **Video logic:** `webrtc_codecs_video.erl` holds what the video plugins
@@ -115,7 +116,7 @@ pkg-config finds, into `priv/`; `c_src/build_nif.sh` runs it from the rebar3
 compile hook. Each NIF has a private Erlang module, `webrtc_codecs_<lib>_nif`,
 that loads without it: `loaded/0` is then false and the codec is not listed.
 `c_src/webrtc_codecs_nif.h` holds the helpers the NIFs share.
-`WEBRTC_CODECS_REQUIRE="opus;vpx;dav1d;aom"` fails the build when a library is missing,
+`WEBRTC_CODECS_REQUIRE="opus;vpx;openh264;dav1d;aom"` fails the build when a library is missing,
 `WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
 **Devices and files:** `webrtc_codecs_capture.erl`, a process that owns an

@@ -6,6 +6,8 @@
 
 - A plugin, `webrtc_codecs`, that you set once on a peer connection or a
   transceiver and that uses the codec that was negotiated.
+- H.264 decoding (baseline, main, high) and constrained baseline encoding
+  with OpenH264.
 - AV1 (main profile) decoding with dav1d and encoding with libaom, with the
   same bitrate, key frame and picture size handling as VP8 and VP9. Either
   library can be left out.

@@ -70,8 +70,7 @@ end.
 
 With `encode`, FFmpeg encodes the video as well and you get encoded frames
 to give to `webrtc:send_frame/4`. No codec plugin is needed on the sending
-side, and FFmpeg's hardware encoders can be used. This is also the way to
-send H.264 without a plugin.
+side, and FFmpeg's hardware encoders can be used.
 
 ```erlang
 {ok, _} = webrtc:add_transceiver(Pc, video, #{}),
