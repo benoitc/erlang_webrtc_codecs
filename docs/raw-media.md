@@ -6,8 +6,9 @@ that produces or consumes them, whatever the codec.
 
 ## Pictures
 
-A picture is three I420 planes without padding. Width and height are even;
-`y` is `width * height` bytes, `u` and `v` are a quarter of that each.
+A picture is three I420 planes without padding: `y` is `width * height`
+bytes, `u` and `v` are a quarter of that each. When the width or the height
+is odd, the chroma planes round it up.
 
 ```erlang
 Picture = #{

@@ -27,7 +27,8 @@ before it is called done, committed or opened as a pull request:
    normal scheduler never waits on a codec, a device or a lock a dirty call
    holds.
 3. **Bounded.** No queue, buffer or picture size grows with what a peer
-   sends. A frame that cannot be decoded is dropped and reported, not kept
+   sends. A video decoder reads the picture size from the frame header and
+   refuses one over `max_pixels` before the library allocates for it. A frame that cannot be decoded is dropped and reported, not kept
    and not retried.
 4. **The plugin stays on.** erlang_webrtc turns a plugin off for good when
    it raises or returns `{error, _}`. Bad media from the peer is not an
@@ -99,7 +100,7 @@ the plugin that calls the module of the negotiated codec.
 **Codec plugins:** one module per codec family, each with the
 `webrtc_media_codec` behaviour plus `codecs/0`, the codecs it can run in this
 build (none when its native library is missing). `webrtc_codecs_opus.erl`
-(libopus), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
+(libopus), `webrtc_codecs_vpx.erl` (VP8 and VP9, libvpx), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
 `?MODULES` in `webrtc_codecs.erl`.
 
 **Native code:** `c_src/CMakeLists.txt` builds one NIF per codec library
@@ -107,7 +108,7 @@ pkg-config finds, into `priv/`; `c_src/build_nif.sh` runs it from the rebar3
 compile hook. Each NIF has a private Erlang module, `webrtc_codecs_<lib>_nif`,
 that loads without it: `loaded/0` is then false and the codec is not listed.
 `c_src/webrtc_codecs_nif.h` holds the helpers the NIFs share.
-`WEBRTC_CODECS_REQUIRE="opus"` fails the build when a library is missing,
+`WEBRTC_CODECS_REQUIRE="opus;vpx"` fails the build when a library is missing,
 `WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR

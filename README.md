@@ -9,9 +9,10 @@ media itself, rather than forward it.
 | Codec | Decode | Encode | Needs |
 |---|---|---|---|
 | Opus | yes | yes | libopus |
+| VP8, VP9 (profile 0) | yes | yes | libvpx |
 | G.711 (PCMU, PCMA) | yes | yes | nothing, pure Erlang |
 
-VP8, VP9, H.264, AV1 and device capture are not there yet.
+H.264, AV1 and device capture are not there yet.
 
 ## Build and test
 
@@ -64,6 +65,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 ## Documentation
 
 - [Raw media](docs/raw-media.md): the pictures and audio you exchange with a plugin, bitrate and key frame requests
+- [VP8 and VP9](docs/vp8-vp9.md)
 - [Opus](docs/opus.md)
 - [G.711](docs/g711.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md)
