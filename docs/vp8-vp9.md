@@ -96,7 +96,9 @@ codec_plugin => {webrtc_codecs, #{bitrate => 800000, max_bitrate => 2500000}}
   Ts}`, and so does every frame after it until a key frame
   (`waiting_for_keyframe`). Ask for one with `webrtc:request_keyframe/2`.
 - A frame that declares a picture larger than `max_pixels` is dropped
-  (`too_large`) before any memory is taken for it.
+  (`too_large`) before any memory is taken for it. For VP9 that is every
+  frame of a superframe, the ones not shown included; a superframe index
+  that does not fit its data is dropped as `invalid_frame`.
 - VP9 is profile 0 only (8 bit, 4:2:0), which is what erlang_webrtc and
   browsers negotiate by default. Another `profile-id` fails `init/3`, and a
   frame of another profile is dropped (`unsupported_profile`).

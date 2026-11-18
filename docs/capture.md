@@ -130,6 +130,15 @@ ends, after sending `eof` or `{error, Reason}`.
 
 ## Notes
 
+- FFmpeg hands its media over a socket that is read one message at a time:
+  when the capture process is behind, FFmpeg waits, and for a live device
+  drops on its side.
+- An error comes as `{error, {ffmpeg, Status, Text}}`, with the end of what
+  FFmpeg said (at most 4 kB), or `{error, {ffmpeg, killed, Text}}` when it
+  had to be killed. `{error, bad_stream}` means what it wrote was not the
+  stream that was asked for.
+- When a capture stops, FFmpeg is gone when `stop/1` returns: it is given a
+  second to end, then sent SIGTERM, then SIGKILL.
 - Keep reading your mailbox. When the owner has more than `max_queue`
   messages waiting, of any kind, what is captured is dropped and counted in
   `webrtc_codecs_capture:stats/1`. An owner that also owns the peer

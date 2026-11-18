@@ -27,17 +27,32 @@ before it is called done, committed or opened as a pull request:
    normal scheduler never waits on a codec, a device or a lock a dirty call
    holds.
 3. **Bounded.** No queue, buffer or picture size grows with what a peer
-   sends. A video decoder reads the picture size from the frame header and
-   refuses one over `max_pixels` before the library allocates for it. A frame that cannot be decoded is dropped and reported, not kept
-   and not retried.
+   sends. A video decoder refuses a picture over `max_pixels` before the
+   library allocates for it, and that means everything the library will
+   read in the call: every frame of a superframe, every parameter set, on
+   the size as coded rather than as shown, and nothing the check did not
+   see. What cannot be read is refused, not tried. A frame that cannot be
+   decoded is dropped and reported, not kept and not retried.
+   [docs/limits.md](docs/limits.md) lists every limit: add yours to it.
 4. **The plugin stays on.** erlang_webrtc turns a plugin off for good when
    it raises or returns `{error, _}`. Bad media from the peer is not an
    error: `decode/2` returns a `t:webrtc_codecs:dropped/0` output. Errors are
    for what the application got wrong (raw media in the wrong format) and
    for a codec that cannot start.
 
+5. **An external program has one owner and an end.** FFmpeg and ffplay are
+   started through `webrtc_codecs_exec`, without a shell. Media to or from
+   them goes through a socket or a write that cannot block for ever, with a
+   deadline. Whatever the program does, stopping returns and the program is
+   gone: waited for, asked to end, then killed. What it says is kept short.
+
 Each of these has a test: a truncated or corrupt frame for the first and
-third, and the error path for the fourth.
+third, the error path for the fourth, a program that misbehaves
+(`test/fake_ffmpeg.escript`) for the fifth. A constructor's failure paths
+are run with fault injection.
+
+In a constructor, nothing is read from a resource after
+`enif_release_resource`: the release may free it.
 
 ## Do not change erlang_webrtc to suit a plugin
 
@@ -62,6 +77,10 @@ rebar3 dialyzer             # Type checking must pass
 rebar3 xref                 # Cross-reference analysis must pass
 rebar3 ex_doc               # Docs must build
 ```
+
+For a change to native code, also `scripts/test-sanitizers.sh`: the unit
+tests and the lifecycle suite with the NIFs built with ASan, UBSan and fault
+injection.
 
 ## Platforms
 
@@ -136,7 +155,9 @@ and sends raw media, or with `encode` frames FFmpeg encoded, to its owner,
 dropping when the owner is behind.
 `webrtc_codecs_playback.erl`, a process that owns an `ffplay` or `ffmpeg`
 port and writes raw media to a window, the speaker or a file.
-`webrtc_codecs_file.erl` reads and writes IVF and WAV in Erlang. Devices
+`webrtc_codecs_exec.erl` owns the program for both: its port, the end of
+what it says, and its end. `webrtc_codecs_file.erl` reads and writes IVF
+and WAV in Erlang. Devices
 never go through a NIF.
 
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR
@@ -165,6 +186,12 @@ What `decode/2` gives and `encode/2` takes, see
   erlang_webrtc and uses FFmpeg as a reference decoder.
 - `test/webrtc_codecs_peer_SUITE.erl`: Common Test, the plugins and the
   captures inside two erlang_webrtc peer connections on loopback.
+- `test/webrtc_codecs_lifecycle_SUITE.erl`: native contexts shared between
+  processes, left by killed owners, fed bad media for long, created and
+  dropped in numbers, with timings and memory in the log.
+- `test/fake_ffmpeg.escript`: stands in for FFmpeg in the capture and
+  playback tests and misbehaves on demand (floods, stops reading, ignores
+  the end of input and SIGTERM).
 - `test/webrtc_codecs_browser_SUITE.erl`: the video plugins against headless
   Chromium, both ways, through the browser peer of erlang_webrtc's interop
   suite. It skips itself when that peer is not installed, which is the case

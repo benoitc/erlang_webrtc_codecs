@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Fixed
+
+- Opus: a decoder or encoder that failed to start read memory it had just
+  released. It now reports the error cleanly.
+- H.264: the picture size limit only looked at the first parameter set of a
+  key frame, at the size shown rather than the size decoded, and let a set
+  it could not read through. Every parameter set is now checked, and one
+  that cannot be read is refused.
+- VP9: the picture size limit only looked at the first frame of a buffer,
+  while the library decodes all of them. Every frame is now checked.
+- Capture kept growing memory when the program wrote something that was not
+  the expected stream, or wrote faster than it was read. It now stops with
+  an error in the first case and holds the program back in the second.
+- Recording to a file could block for ever when FFmpeg stopped reading, and
+  stopping could return before the file was finished or with FFmpeg still
+  running. Writes now have a deadline, stopping tells whether the file was
+  finished, and the program is always ended.
+- Messages of FFmpeg were written to a file with no size limit. Only their
+  end is kept, in memory.
+- Listing devices could wait for ever on a program that kept writing.
+- The H.264 encoder ignored some errors of the library.
+
+### Changed
+
+- `webrtc_codecs_playback:stop/1` returns `{error, {not_finalized, _, _}}`
+  when a file was not finished, and `play/2` can return `{error, stalled}`.
+- Errors of capture and playback carry the end of what the program said,
+  and `killed` in place of an exit status when it had to be killed.
+- `webrtc_codecs_h264:sps_size/1` is replaced by `sps_info/1`, which gives
+  the size as coded and as shown.
+- An H.264 frame with a parameter set of a profile OpenH264 does not decode
+  is dropped instead of tried.
+
 ### Added
 
 - A plugin, `webrtc_codecs`, that you set once on a peer connection or a

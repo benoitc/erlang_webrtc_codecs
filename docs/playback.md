@@ -38,8 +38,14 @@ file is complete.
 ```erlang
 {ok, File} = webrtc_codecs_playback:start({file, video, "call.mkv"}, #{width => 640, height => 480}),
 ok = webrtc_codecs_playback:play(File, Picture),
-ok = webrtc_codecs_playback:stop(File).
+case webrtc_codecs_playback:stop(File) of
+    ok -> finished;
+    {error, {not_finalized, _Status, Text}} -> {incomplete, Text}
+end.
 ```
+
+`stop/1` returns `ok` only when FFmpeg ended normally after the end of your
+media, which is when the file is whole.
 
 Choose the codec with `output_options`:
 
@@ -79,6 +85,8 @@ ok = webrtc_codecs_file:write_wav("out.wav", [Audio1, Audio2]),
 | `channels` | `1` | Audio channels, 1 or 2 |
 | `output_options` | none | FFmpeg options before the name of a file |
 | `title` | `"webrtc_codecs"` | Title of the window |
+| `write_timeout` | `5000` | Milliseconds a file sink may take to accept what `play/2` gives it |
+| `finish_timeout` | `15000` | Milliseconds `stop/1` gives FFmpeg to finish a file |
 | `ffmpeg`, `ffplay` | from `PATH` | Paths of the executables |
 
 ## Notes
@@ -86,10 +94,17 @@ ok = webrtc_codecs_file:write_wav("out.wav", [Audio1, Audio2]),
 - A sink takes one format. Media of another size or rate gets `{error,
   bad_format}`: start another sink when the size of the video changes.
 - A window or the speaker that is behind makes `play/2` return `dropped`;
-  nothing is queued. A file takes everything, and `play/2` waits for it.
+  nothing is queued. A file takes everything, and `play/2` waits for it, up
+  to `write_timeout`. Past it, `play/2` returns `{error, stalled}`, FFmpeg
+  is killed, and the sink takes nothing more.
 - When the program ends by itself (the window was closed, the file cannot
-  be written), `play/2` returns `{error, {ended, Status, Text}}` with what
-  it said.
+  be written), `play/2` returns `{error, {ended, Status, Text}}` with the
+  end of what it said.
+- `stop/1` always returns and the program is always gone after it: one that
+  does not end is sent SIGTERM, then SIGKILL. A sink that goes with its
+  owner, without `stop/1`, ends its program at once and leaves the file as
+  it is.
+- At most one second of audio per call.
 - The window and the speaker are not covered by the tests, since they need
   a person; files are.
 - The fourcc of an IVF file is `VP80`, `VP90` or `AV01`. With the default

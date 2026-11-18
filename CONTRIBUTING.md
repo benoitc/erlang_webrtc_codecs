@@ -100,6 +100,14 @@ runs: `scripts/test-freebsd.sh stop` ends it, `destroy` also forgets its
 disk. It needs `qemu`, and listens for SSH on `127.0.0.1:52222`
 (`WEBRTC_CODECS_FREEBSD_PORT` to change it).
 
+For a change to native code, run the tests with the NIFs built with ASan,
+UBSan and fault injection, which makes each allocation of a constructor
+fail in turn:
+
+```bash
+scripts/test-sanitizers.sh
+```
+
 The browser suite only runs on the machine you work on.
 
 CI runs the same on GitHub: Linux with every check, then macOS and FreeBSD

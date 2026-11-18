@@ -86,6 +86,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [G.711](docs/g711.md)
 - [Capture from a camera or a microphone](docs/capture.md)
 - [Play, show or record decoded media](docs/playback.md)
+- [Limits and what they do not cover](docs/limits.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md), and issues met in erlang_webrtc
 - [Contributing](CONTRIBUTING.md)
 
