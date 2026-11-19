@@ -14,7 +14,7 @@ uses a term it does not explain.
 | codec plugin | A module with the `webrtc_media_codec` behaviour, which erlang_webrtc calls to decode what a transceiver receives and encode what you send. This package is a set of them. |
 | negotiated codec | The codec both peers agreed on for a transceiver, with its `fmtp` parameters. |
 | `fmtp` | The parameters of a codec in the session description, such as `profile-level-id` or `useinbandfec`. |
-| `rtx` | The retransmission format that goes with a video codec. Keep it when you narrow the codecs you offer. |
+| `rtx` | The retransmission format that goes with a video codec. `webrtc:prefer_codec/2` moves it along with its codec. |
 | frame buffer | The part of erlang_webrtc that puts packets back into whole frames, in order, before a plugin sees them. |
 
 ## Media

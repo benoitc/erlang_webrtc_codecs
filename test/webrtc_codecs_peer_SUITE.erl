@@ -4,9 +4,11 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, h264/1, capture/1, capture_encoded/1]).
+-export([
+    pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, h264/1, without_rtx/1, capture/1, capture_encoded/1
+]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9, av1, h264, capture, capture_encoded].
+all() -> [pcmu, pcma, opus, vp8, vp9, av1, h264, without_rtx, capture, capture_encoded].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -40,7 +42,7 @@ opus(_Config) ->
 audio(Name, Rate, Implementation, Bitrate) ->
     Plugin = {webrtc_codecs, #{}},
     Codecs = #{
-        audio => [C || #{name := N} = C <- webrtc_jsep_caps:default_codecs(audio), N =:= Name]
+        audio => [C || #{name := N} = C <- webrtc:default_codecs(audio), N =:= Name]
     },
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
@@ -138,7 +140,7 @@ av1(_Config) ->
 %% decoded agree in the statistics of both.
 video(Name, Encoder, Decoder) ->
     Plugin = {webrtc_codecs, #{bitrate => 400000}},
-    Codecs = #{video => only(Name, webrtc_jsep_caps:default_codecs(video))},
+    Codecs = #{video => only(Name, webrtc:default_codecs(video))},
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
         loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
@@ -208,6 +210,57 @@ video(Name, Encoder, Decoder) ->
     ok = webrtc:close(A),
     ok = webrtc:close(B).
 
+%% AV1 and H.264 have no picture ID, so the frame buffer of erlang_webrtc
+%% relies on sequence numbers for them. Before erlang_webrtc 0.2.0 the
+%% padding a sender adds when RTX is not negotiated was read as a loss
+%% and all but the first frame were dropped. Every frame has to arrive
+%% without RTX too.
+without_rtx(_Config) ->
+    Built = [
+        {<<"AV1">>, webrtc_codecs_aom_nif:loaded() andalso webrtc_codecs_dav1d_nif:loaded()},
+        {<<"H264">>, webrtc_codecs_openh264_nif:loaded()}
+    ],
+    case [Name || {Name, true} <- Built] of
+        [] ->
+            {skip, "built without the libraries of AV1 and H.264"};
+        Names ->
+            [frames_without_rtx(Name) || Name <- Names],
+            ok
+    end.
+
+frames_without_rtx(Name) ->
+    Plugin = {webrtc_codecs, #{bitrate => 400000}},
+    Codecs = #{video => [C || #{name := N} = C <- webrtc:default_codecs(video), N =:= Name]},
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{
+        loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
+    }),
+    {ok, _} = webrtc:add_transceiver(A, video, #{frames => true, codec_plugin => Plugin}),
+    ok = connect(A, B),
+    Count = 60,
+    [
+        begin
+            ok = webrtc:send_media(A, <<"0">>, webrtc_codecs_pattern:picture(320, 240, I)),
+            timer:sleep(33)
+        end
+     || I <- lists:seq(0, Count - 1)
+    ],
+    Decoded = collect(
+        B,
+        fun
+            ({decoded, <<"0">>, _}) -> true;
+            (_) -> false
+        end,
+        Count,
+        5000
+    ),
+    ?assertEqual(
+        [I * 3000 || I <- lists:seq(0, Count - 1)],
+        [T || {decoded, _, #{format := i420, timestamp := T}} <- Decoded]
+    ),
+    ok = webrtc:close(A),
+    ok = webrtc:close(B).
+
 %% Capture to a peer: pictures and audio from FFmpeg's test sources go
 %% to send_media/3 as they come, are encoded by the plugins (VP8 and
 %% G.711, which needs no library) and decoded by the other peer.
@@ -221,8 +274,8 @@ capture(_Config) ->
 capture() ->
     Plugin = {webrtc_codecs, #{}},
     Codecs = #{
-        audio => only(<<"PCMU">>, webrtc_jsep_caps:default_codecs(audio)),
-        video => only(<<"VP8">>, webrtc_jsep_caps:default_codecs(video))
+        audio => only(<<"PCMU">>, webrtc:default_codecs(audio)),
+        video => only(<<"VP8">>, webrtc:default_codecs(video))
     },
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
@@ -313,7 +366,7 @@ capture_encoded(_Config) ->
     end.
 
 capture_encoded() ->
-    Codecs = #{video => only(<<"VP8">>, webrtc_jsep_caps:default_codecs(video))},
+    Codecs = #{video => only(<<"VP8">>, webrtc:default_codecs(video))},
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
         loopback => true,

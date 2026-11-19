@@ -16,23 +16,19 @@ why a plugin behaves as it does, or when you plan a change to the behaviour.
 
 ## Issues met in erlang_webrtc
 
-Found while testing the plugins, and still there in erlang_webrtc 0.1.0
-(`9bbbd24`). They are not worked around in erlang_webrtc; each says what
-this package does meanwhile.
+Found while testing the plugins.
 
-- **AV1 and H.264 frames are dropped after padding on the media stream.**
-  A padding-only RTP packet received on the media SSRC is counted
-  (`webrtc_media_in`, the `padding_received` clause) but is not given to
-  `webrtc_frame_buffer:padding/3`, so the frame buffer sees its sequence
-  number as a loss. VP8 and VP9 are told apart by their picture IDs; codecs
-  without one get every later frame dropped and a key frame asked for again
-  and again. It shows between two erlang_webrtc peers on loopback that
-  negotiated AV1 or H.264 without its `rtx` format: no packet is lost, the
-  receiver counts more packets than the media packets sent, and 1 frame of
-  60 is decoded. With `rtx` negotiated all 60 are, and VP8 decodes all 60
-  either way, so the tests and the guides keep `rtx`.
+- **AV1 and H.264 frames were dropped after padding on the media stream.**
+  Fixed in erlang_webrtc 0.2.0. In 0.1.0, between two peers that negotiated
+  AV1 or H.264 without its `rtx` format, 1 frame of 60 was decoded: padding
+  sent on the media stream was read as a loss by the frame buffer. This
+  package requires 0.2.0, and `webrtc_codecs_peer_SUITE` has a case that
+  fails if it comes back.
+- **No public way to put a codec first.** Fixed in 0.2.0 with
+  `webrtc:default_codecs/1` and `webrtc:prefer_codec/2`, which the guides
+  now use.
 - **The VP9 file of the frame corpus is profile 1.**
   `test/corpora/frames/vp9.ivf` was encoded from RGB without `-pix_fmt
-  yuv420p`, so it is 4:4:4, which the VP9 plugin does not decode. The tests
-  check that it is refused, and decode the same pictures encoded in profile 0
-  by FFmpeg.
+  yuv420p`, so it is 4:4:4, which the VP9 plugin does not decode. This
+  package keeps a copy in `test/corpus`: the tests check that it is refused,
+  and decode the same pictures encoded in profile 0 by FFmpeg.

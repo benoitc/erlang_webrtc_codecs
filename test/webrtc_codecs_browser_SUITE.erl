@@ -85,7 +85,7 @@ both_ways(Config, Codec, true) ->
     %% We offer this codec alone, with its retransmission format, and a
     %% transceiver that sends as well as receives.
     Plugin = {webrtc_codecs, #{bitrate => 500000}},
-    Video = webrtc_jsep_caps:default_codecs(video),
+    Video = webrtc:default_codecs(video),
     [#{pt := Pt} = Wanted] = [C || #{name := N} = C <- Video, N =:= Codec],
     Rtx = [
         C

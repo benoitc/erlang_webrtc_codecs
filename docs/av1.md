@@ -42,13 +42,11 @@ end.
 ## Send
 
 erlang_webrtc offers VP8 first. To send AV1, put it first in the codecs you
-offer, with its retransmission format:
+offer:
 
 ```erlang
-Video = webrtc_jsep_caps:default_codecs(video),
-[#{pt := Pt} = Av1] = [C || #{name := <<"AV1">>} = C <- Video],
-Rtx = [C || #{name := <<"rtx">>, fmtp := [{<<"apt">>, Apt}]} = C <- Video, Apt =:= integer_to_binary(Pt)],
-{ok, Pc} = webrtc:new_peer_connection(#{codecs => #{video => [Av1 | Rtx]}}),
+{ok, Video} = webrtc:prefer_codec(<<"AV1">>, webrtc:default_codecs(video)),
+{ok, Pc} = webrtc:new_peer_connection(#{codecs => #{video => Video}}),
 {ok, _} = webrtc:add_transceiver(Pc, video, #{frames => true, codec_plugin => {webrtc_codecs, #{}}}),
 
 ok = webrtc:send_media(Pc, Mid, #{
@@ -100,6 +98,3 @@ end.
   memory for it (`too_large`).
 - The encoder works in real time at a constant bitrate and holds no frame
   back. Pictures of another size start a new stream with a key frame.
-- Keep the `rtx` format next to AV1 when you narrow the codecs. Without it,
-  see "Issues met in erlang_webrtc" in
-  [What the codec behaviour lacks](behaviour-gaps.md).

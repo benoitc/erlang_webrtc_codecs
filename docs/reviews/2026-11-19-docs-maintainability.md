@@ -35,7 +35,10 @@ Still open:
 - `docs/behaviour-gaps.md` still holds the two issues met in erlang_webrtc.
   They were rechecked against 0.1.0 and are still there; they have not been
   filed upstream.
-- Questions 4, 5 and 6 of section 13 have no answer yet.
+- Question 5 is answered by erlang_webrtc 0.2.0: `webrtc:default_codecs/1`
+  and `webrtc:prefer_codec/2` are public, and the guides and tests use them.
+  The padding issue is fixed there too; this package now requires 0.2.0.
+- Questions 4 and 6 of section 13 have no answer yet.
 
 ## What it found, in short
 
