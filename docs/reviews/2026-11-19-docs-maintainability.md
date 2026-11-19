@@ -6,6 +6,35 @@ so that they can understand it, change it and check their change. It edits
 no source code. You decide which findings have to be fixed before 0.1.0 and
 which can wait; nothing is released until then.
 
+## Update before the next release, 2026-11-19
+
+`main` at `b004dee`, nine commits after `v0.1.0`. Nothing is released until
+you have said which of these must be fixed first.
+
+What changed since 0.1.0:
+
+- Requires erlang_webrtc 0.2.0 (the dropped AV1 and H.264 frames are fixed
+  there; the guides use its `webrtc:prefer_codec/2`).
+- The capture module is split in four, the NIF constructors share one
+  pattern, and the documentation has its architecture page, module map,
+  glossary and a drift test.
+- The public API did not change: every new export is in an internal module.
+
+Findings for this release:
+
+| Finding | Kind | Suggestion |
+|---|---|---|
+| `AGENTS.md` is now wrong in three places: it describes capture as one module (there are four), says the tests read "the frame corpus of erlang_webrtc" (they read `test/corpus`), and does not know `webrtc_codecs_nif_tests`, `webrtc_codecs_docs_tests` or the shared constructor helpers. You chose earlier to leave the file as it is; that was before it was out of date. | documentation | Fix the three passages, nothing else |
+| The dependency is written `{webrtc, "0.2.0"}`, an exact version. The 0.1.0 on Hex requires exactly `webrtc` 0.1.0 the same way. A user cannot take a `webrtc` 0.2.1 with it. | packaging | `"~> 0.2.0"` |
+| Four tests keep a `false -> ok` branch for a corpus that is not found. `corpus/1` no longer returns `false`: the files are in this repository. | code readability | Remove the dead branches |
+| `webrtc_codecs_playback` is now the largest module (421 lines): the process and FFmpeg's command line. | module organisation | Leave: two responsibilities, 41 clauses, readable |
+| `webrtc_codecs_docs_tests` does not check the code blocks of the guides. | documentation | After the release |
+| Questions 4 (which exported helpers are public API) and 6 (Windows) of section 13 | design | Yours, can wait |
+
+Version: nothing public changed and nothing was removed, so 0.1.1 fits. The
+one thing a user notices is the new minimum for erlang_webrtc; if you would
+rather signal that, 0.2.0 does, and matches the stack's number.
+
 ## State on 2026-11-19, after the 0.1.0 release
 
 Done since this plan was written:
