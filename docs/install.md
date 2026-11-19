@@ -186,7 +186,7 @@ you move to another.
 
 ```erlang
 {deps, [
-    {webrtc_codecs, "0.1.0"}
+    {webrtc_codecs, "0.1.1"}
 ]}.
 ```
 

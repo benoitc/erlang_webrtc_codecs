@@ -17,14 +17,12 @@ av1_test_() ->
         true -> ?C:all(ctx())
     end.
 
-%% The AV1 corpus of erlang_webrtc, made by SVT-AV1, decodes to its
+%% The AV1 file of test/corpus, made by SVT-AV1, decodes to its
 %% twelve pictures, two of them key frames, the same samples FFmpeg gets.
 corpus_test_() ->
-    case {webrtc_codecs_dav1d_nif:loaded(), ?T:corpus("av1.ivf")} of
-        {true, Path} when Path =/= false ->
-            {timeout, 60, fun() -> ?C:decodes_like_ffmpeg(ctx(), Path) end};
-        _ ->
-            {"skipped: built without dav1d, or no corpus", []}
+    case webrtc_codecs_dav1d_nif:loaded() of
+        true -> {timeout, 60, fun() -> ?C:decodes_like_ffmpeg(ctx(), ?T:corpus("av1.ivf")) end};
+        false -> {"skipped: built without dav1d", []}
     end.
 
 codecs_test() ->

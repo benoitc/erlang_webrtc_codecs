@@ -31,6 +31,9 @@ Findings for this release:
 | `webrtc_codecs_docs_tests` does not check the code blocks of the guides. | documentation | After the release |
 | Questions 4 (which exported helpers are public API) and 6 (Windows) of section 13 | design | Yours, can wait |
 
+Decided: version 0.1.1, with the first three findings fixed before it (the
+dependency as `~> 0.2.0`, `AGENTS.md`, the dead test branches).
+
 Version: nothing public changed and nothing was removed, so 0.1.1 fits. The
 one thing a user notices is the new minimum for erlang_webrtc; if you would
 rather signal that, 0.2.0 does, and matches the stack's number.

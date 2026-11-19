@@ -49,32 +49,28 @@ access_units(Data) ->
     ),
     lists:reverse(Units).
 
-%% The H.264 corpus of erlang_webrtc, made by x264 with a size that
+%% The H.264 file of test/corpus, made by x264 with a size that
 %% needs cropping, decodes to its twelve pictures, two of them key
 %% frames, the same samples FFmpeg gets.
 corpus() ->
-    case ?T:corpus("h264.h264") of
-        false ->
-            ok;
-        Path ->
-            {ok, File} = file:read_file(Path),
-            Frames = ?T:frames(access_units(File), ?C:is_key(ctx())),
-            ?assertEqual(
-                [true, false, false, false, false, false, true, false, false, false, false, false],
-                [K || #{keyframe := K} <- Frames]
-            ),
-            %% Shown as 174 x 130, coded as whole macroblocks.
-            ?assertEqual({key, 176, 144}, ?M:frame_info(h264, maps:get(data, hd(Frames)))),
-            {Pictures, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(), #{})),
-            ?assertMatch(#{framesDecoded := 12, keyFramesDecoded := 2}, Stats),
-            ?assertEqual([I * 3000 || I <- lists:seq(0, 11)], [T || #{timestamp := T} <- Pictures]),
-            ?assert(
-                lists:all(fun(#{format := i420, width := 174, height := 130}) -> true end, Pictures)
-            ),
-            case ?T:reference(Path, 174, 130) of
-                false -> ok;
-                Reference -> ?assertEqual(Reference, [maps:remove(timestamp, P) || P <- Pictures])
-            end
+    Path = ?T:corpus("h264.h264"),
+    {ok, File} = file:read_file(Path),
+    Frames = ?T:frames(access_units(File), ?C:is_key(ctx())),
+    ?assertEqual(
+        [true, false, false, false, false, false, true, false, false, false, false, false],
+        [K || #{keyframe := K} <- Frames]
+    ),
+    %% Shown as 174 x 130, coded as whole macroblocks.
+    ?assertEqual({key, 176, 144}, ?M:frame_info(h264, maps:get(data, hd(Frames)))),
+    {Pictures, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(), #{})),
+    ?assertMatch(#{framesDecoded := 12, keyFramesDecoded := 2}, Stats),
+    ?assertEqual([I * 3000 || I <- lists:seq(0, 11)], [T || #{timestamp := T} <- Pictures]),
+    ?assert(
+        lists:all(fun(#{format := i420, width := 174, height := 130}) -> true end, Pictures)
+    ),
+    case ?T:reference(Path, 174, 130) of
+        false -> ok;
+        Reference -> ?assertEqual(Reference, [maps:remove(timestamp, P) || P <- Pictures])
     end.
 
 %% A key frame carries its parameter sets, so a decoder can start there.

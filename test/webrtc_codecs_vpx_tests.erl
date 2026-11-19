@@ -38,25 +38,18 @@ without_libvpx_test() ->
             ?assertEqual({error, {not_built, vpx}}, ?M:init(video, #{name => <<"VP8">>}, #{}))
     end.
 
-%% The VP8 corpus of erlang_webrtc decodes to its twelve pictures, two
+%% The VP8 file of test/corpus decodes to its twelve pictures, two
 %% of them key frames, the same samples FFmpeg gets. The VP9 one is
 %% profile 1 (4:4:4), which is refused frame by frame; the same pictures
 %% encoded in profile 0 by FFmpeg stand in for it.
 corpus(vp8) ->
-    case ?T:corpus("vp8.ivf") of
-        false -> ok;
-        Path -> ?C:decodes_like_ffmpeg(ctx(vp8), Path)
-    end;
+    ?C:decodes_like_ffmpeg(ctx(vp8), ?T:corpus("vp8.ivf"));
 corpus(vp9) ->
-    case ?T:corpus("vp9.ivf") of
-        false ->
-            ok;
-        Path ->
-            Frames = ?T:frames(?T:ivf(Path), ?C:is_key(ctx(vp9))),
-            {Outs, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(vp9), #{})),
-            ?assertEqual(lists:duplicate(12, unsupported_profile), [R || #{dropped := R} <- Outs]),
-            ?assertEqual(#{}, Stats)
-    end,
+    Path = ?T:corpus("vp9.ivf"),
+    Frames = ?T:frames(?T:ivf(Path), ?C:is_key(ctx(vp9))),
+    {Outs, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(vp9), #{})),
+    ?assertEqual(lists:duplicate(12, unsupported_profile), [R || #{dropped := R} <- Outs]),
+    ?assertEqual(#{}, Stats),
     case ?T:ffmpeg_encode("-pix_fmt yuv420p -c:v libvpx-vp9 -g 6 -b:v 100k", ".ivf") of
         false ->
             ok;

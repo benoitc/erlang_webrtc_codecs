@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-11-19)
 
 ### Changed
 
-- Requires erlang_webrtc 0.2.0, which no longer drops AV1 and H.264 frames
-  when RTX is not negotiated. The guides use its `webrtc:prefer_codec/2` to
-  put a codec first.
+- Requires erlang_webrtc 0.2.0 or a later 0.2 version. erlang_webrtc 0.1.0
+  dropped AV1 and H.264 frames when RTX was not negotiated; with 0.2.0 they
+  all arrive. Version 0.1.0 of this package required exactly erlang_webrtc
+  0.1.0, so it could not be used with the fixed stack.
+- The guides put a codec first with `webrtc:prefer_codec/2`, which
+  erlang_webrtc 0.2.0 adds.
 
 ## 0.1.0 (2026-11-19)
 

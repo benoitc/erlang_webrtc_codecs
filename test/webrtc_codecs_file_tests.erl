@@ -29,18 +29,14 @@ ivf_round_trip_test() ->
         file:delete(File)
     end.
 
-%% The corpus of erlang_webrtc reads as twelve frames of 176 x 144.
+%% The VP8 file of test/corpus reads as twelve frames of 176 x 144.
 ivf_corpus_test() ->
-    case webrtc_codecs_test_media:corpus("vp8.ivf") of
-        false ->
-            ok;
-        Path ->
-            {ok, #{fourcc := <<"VP80">>, width := 176, height := 144, frames := Frames}} = ?F:read_ivf(
-                Path
-            ),
-            ?assertEqual(12, length(Frames)),
-            ?assertEqual(webrtc_codecs_test_media:ivf(Path), [D || #{data := D} <- Frames])
-    end.
+    Path = webrtc_codecs_test_media:corpus("vp8.ivf"),
+    {ok, #{fourcc := <<"VP80">>, width := 176, height := 144, frames := Frames}} = ?F:read_ivf(
+        Path
+    ),
+    ?assertEqual(12, length(Frames)),
+    ?assertEqual(webrtc_codecs_test_media:ivf(Path), [D || #{data := D} <- Frames]).
 
 %% FFmpeg reads the IVF we write from encoded frames.
 ivf_for_ffmpeg_test_() ->

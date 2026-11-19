@@ -6,7 +6,7 @@ decodes the frames a transceiver receives and encodes the raw pictures and
 audio you send. Use it when your application has to look at or produce the
 media itself, rather than forward it.
 
-> **Status: experimental.** This package is new: 0.1.0 is its first release.
+> **Status: experimental.** This package is new.
 > Its API, its options and the shape of the raw media may change without
 > notice. Do not put it in front of peers you do not trust yet: see what
 > is and is not tested below, and [the limits](docs/limits.md).
@@ -37,8 +37,7 @@ encoders included.
 
 Experimental. What that means today:
 
-- **First release.** 0.1.0 is the first version. Expect breaking changes
-  between versions until 1.0.
+- **Early versions.** Expect breaking changes between versions until 1.0.
 - **Tested:** every codec against itself, against FFmpeg's decoders and the
   frame corpus of erlang_webrtc, between two erlang_webrtc peers, and against
   headless Chromium in both directions. Capture and recording with FFmpeg's
@@ -85,7 +84,7 @@ rebar3 ct
 
 ```erlang
 {deps, [
-    {webrtc_codecs, "0.1.0"}
+    {webrtc_codecs, "0.1.1"}
 ]}.
 ```
 

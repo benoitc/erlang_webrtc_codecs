@@ -52,7 +52,10 @@ third, the error path for the fourth, a program that misbehaves
 are run with fault injection.
 
 In a constructor, nothing is read from a resource after
-`enif_release_resource`: the release may free it.
+`enif_release_resource`: the release may free it. Constructors use
+`wc_resource`, `wc_mutex`, `wc_new_failed` and `wc_new_ok` of
+`c_src/webrtc_codecs_nif.h`, which hold that rule, and ask `wc_fail()`
+before creating the codec.
 
 ## Do not change erlang_webrtc to suit a plugin
 
@@ -149,10 +152,14 @@ that loads without it: `loaded/0` is then false and the codec is not listed.
 `WEBRTC_CODECS_REQUIRE="opus;vpx;openh264;dav1d;aom"` fails the build when a library is missing,
 `WEBRTC_CODECS_SKIP_NIF=1` skips native code.
 
-**Devices and files:** `webrtc_codecs_capture.erl`, a process that owns an
-`ffmpeg` port reading a camera, a microphone, a file or a generated source
+**Devices and files:** `webrtc_codecs_capture.erl`, a process that runs
+`ffmpeg` on a camera, a microphone, a file or a generated source
 and sends raw media, or with `encode` frames FFmpeg encoded, to its owner,
-dropping when the owner is behind.
+dropping when the owner is behind. Three internal modules do its parts:
+`webrtc_codecs_capture_devices.erl` lists devices,
+`webrtc_codecs_capture_command.erl` builds FFmpeg's command line, and
+`webrtc_codecs_capture_stream.erl` cuts what FFmpeg writes and holds the
+drop policy.
 `webrtc_codecs_playback.erl`, a process that owns an `ffplay` or `ffmpeg`
 port and writes raw media to a window, the speaker or a file.
 `webrtc_codecs_exec.erl` owns the program for both: its port, the end of
@@ -186,8 +193,12 @@ What `decode/2` gives and `encode/2` takes, see
   time. CI sets `WEBRTC_CODECS_REQUIRE` so that a skip there is a failure.
 - `test/webrtc_codecs_video_checks.erl`: the checks every video plugin runs
   (round trip, bitrate, key frames, damaged and oversized frames, random
-  input); `test/webrtc_codecs_test_media.erl` reads the frame corpus of
-  erlang_webrtc and uses FFmpeg as a reference decoder.
+  input); `test/webrtc_codecs_test_media.erl` reads the encoded video of
+  `test/corpus` and uses FFmpeg as a reference decoder.
+- `test/webrtc_codecs_nif_tests.erl`: every native constructor, with each
+  of its allocations made to fail in turn in a fault injection build.
+- `test/webrtc_codecs_docs_tests.erl`: the module map against the source
+  tree, the links between pages, the pages of the documentation build.
 - `test/webrtc_codecs_peer_SUITE.erl`: Common Test, the plugins and the
   captures inside two erlang_webrtc peer connections on loopback.
 - `test/webrtc_codecs_lifecycle_SUITE.erl`: native contexts shared between
