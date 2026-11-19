@@ -1,5 +1,5 @@
 {application, webrtc_codecs, [
-    {description, "Audio and video codec plugins for erlang_webrtc"},
+    {description, "Audio and video codec plugins for erlang_webrtc (experimental)"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [kernel, stdlib, crypto, webrtc]},

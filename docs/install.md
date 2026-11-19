@@ -181,9 +181,12 @@ Only G.711, capture, playback and files are there.
 
 ## Use it as a dependency
 
+The package is experimental and has no release: pin the commit you tried,
+rather than follow the branch.
+
 ```erlang
 {deps, [
-    {webrtc_codecs, {git, "https://github.com/benoitc/erlang_webrtc_codecs.git", {branch, "main"}}}
+    {webrtc_codecs, {git, "https://github.com/benoitc/erlang_webrtc_codecs.git", {ref, "<commit>"}}}
 ]}.
 ```
 

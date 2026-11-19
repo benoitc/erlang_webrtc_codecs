@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Experimental: nothing has been released yet, and anything below may change.
+
 ### Fixed
 
 - Opus: a decoder or encoder that failed to start read memory it had just

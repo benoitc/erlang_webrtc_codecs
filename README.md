@@ -6,6 +6,11 @@ decodes the frames a transceiver receives and encodes the raw pictures and
 audio you send. Use it when your application has to look at or produce the
 media itself, rather than forward it.
 
+> **Status: experimental.** This package is new and has had no release.
+> Its API, its options and the shape of the raw media may change without
+> notice. Do not put it in front of peers you do not trust yet: see what
+> is and is not tested below, and [the limits](docs/limits.md).
+
 | Codec | Decode | Encode | Needs |
 |---|---|---|---|
 | Opus | yes | yes | libopus |
@@ -18,6 +23,30 @@ It also captures raw pictures and audio from a camera, a microphone or a
 file, and shows, plays or records what is decoded, through the `ffmpeg` and
 `ffplay` executables. FFmpeg can also encode what it captures, hardware
 encoders included.
+
+## Status
+
+Experimental. What that means today:
+
+- **No release.** There is no version on Hex and no tag. Depend on a commit
+  if you try it, and expect breaking changes.
+- **Tested:** every codec against itself, against FFmpeg's decoders and the
+  frame corpus of erlang_webrtc, between two erlang_webrtc peers, and against
+  headless Chromium in both directions. Capture and recording with FFmpeg's
+  generated sources and files. On macOS, Linux (Debian, Alpine) and FreeBSD,
+  on arm64, and in CI.
+- **Not tested:** a real camera, a real microphone, the window and the
+  speaker, which need a person. No browser other than Chromium, no phone, no
+  SIP gateway. Nothing on Windows, where the native codecs are not built.
+- **Native code runs inside your node.** The codec libraries are called
+  through NIFs: a defect in one of them on hostile media can crash the node.
+  The package bounds what it hands them, and was run under sanitizers, but
+  that is not a proof. [Limits and what they do not cover](docs/limits.md)
+  is the honest list.
+- **erlang_webrtc is itself in development.** The plugins build against its
+  `feature/webrtc-stack` branch.
+
+Reports of what works or breaks on your setup are welcome as issues.
 
 ## Build and test
 
@@ -41,9 +70,11 @@ rebar3 ct
 
 ## Add it to your project
 
+There is no release yet: pin the commit you tried.
+
 ```erlang
 {deps, [
-    {webrtc_codecs, {git, "https://github.com/benoitc/erlang_webrtc_codecs.git", {branch, "main"}}}
+    {webrtc_codecs, {git, "https://github.com/benoitc/erlang_webrtc_codecs.git", {ref, "<commit>"}}}
 ]}.
 ```
 
