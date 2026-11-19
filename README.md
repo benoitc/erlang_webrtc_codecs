@@ -122,7 +122,8 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [Limits and what they do not cover](docs/limits.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md), and issues met in erlang_webrtc
 - [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md): how to report a vulnerability
 
 ## License
 
-Apache-2.0
+Apache License 2.0, see [LICENSE](LICENSE).

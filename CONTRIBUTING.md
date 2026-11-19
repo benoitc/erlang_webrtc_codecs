@@ -24,6 +24,9 @@ them.
   file by file; the reviewer reads the code.
 - A fix comes with a test that fails without it.
 
+For a security problem, follow [SECURITY.md](SECURITY.md) instead of opening
+an issue.
+
 AI tools are fine to use. Before you open anything, you must have read the
 change, run the tests, and be able to answer questions about it yourself.
 
