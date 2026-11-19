@@ -18,6 +18,12 @@ Done since this plan was written:
   with the three doors.
 - `CONTRIBUTING.md` has the "If you want to..." guides.
 - The codec guides no longer repeat the install commands.
+- `webrtc_codecs_capture` (682 lines, five responsibilities) is split: the
+  process stays (345 lines, a third of it documentation and types), device
+  listing, FFmpeg's command line and stream cutting are internal modules of
+  98, 139 and 176 lines. Its public API did not change.
+- The constructor pattern of the NIFs is written once in the shared header,
+  with the plane copy and fault injection for every constructor.
 
 Still open:
 
@@ -26,8 +32,7 @@ Still open:
 - `docs/behaviour-gaps.md` still holds the two issues met in erlang_webrtc.
   They were rechecked against 0.1.0 and are still there; they have not been
   filed upstream.
-- The split of `webrtc_codecs_capture`, the shared helpers in the C code and
-  a docs drift check: after the release, not started.
+- A docs drift check: not started.
 - Questions 4, 5, 6 and 9 of section 13 have no answer yet.
 
 ## What it found, in short

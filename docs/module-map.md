@@ -12,8 +12,9 @@ You call these: `webrtc_codecs`, the codec modules as plugins,
 `webrtc_codecs_pattern`.
 
 These are internal and may change without notice: `webrtc_codecs_video`,
-`webrtc_codecs_exec`, `webrtc_codecs_nif` and every `webrtc_codecs_*_nif`
-module.
+`webrtc_codecs_exec`, `webrtc_codecs_capture_devices`,
+`webrtc_codecs_capture_command`, `webrtc_codecs_capture_stream`,
+`webrtc_codecs_nif` and every `webrtc_codecs_*_nif` module.
 
 ## Where things live
 
@@ -29,7 +30,10 @@ module.
 | A call into a codec library | `c_src/webrtc_codecs_<lib>_nif.c`, declared in `src/webrtc_codecs_<lib>_nif.erl` | the codec's tests, `test/webrtc_codecs_lifecycle_SUITE.erl`, `scripts/test-sanitizers.sh` |
 | What the NIFs share: how a constructor allocates, fails and hands over, copying a plane, fault injection | `c_src/webrtc_codecs_nif.h` | `test/webrtc_codecs_nif_tests.erl`, all of the above |
 | How FFmpeg is started, watched and ended | `src/webrtc_codecs_exec.erl` | the capture and playback tests, with `test/fake_ffmpeg.escript` |
-| Capture: sources, device listing, encoded capture, the drop policy | `src/webrtc_codecs_capture.erl` | `test/webrtc_codecs_capture_tests.erl` |
+| Capture: its options, the process, its socket, how it ends | `src/webrtc_codecs_capture.erl` | `test/webrtc_codecs_capture_tests.erl` |
+| Capture: listing cameras and microphones, per system | `src/webrtc_codecs_capture_devices.erl` | the same |
+| Capture: FFmpeg's command line, the sources, the encoders of encoded capture | `src/webrtc_codecs_capture_command.erl` | the same |
+| Capture: cutting what FFmpeg writes into pictures, audio or frames, and the drop policy | `src/webrtc_codecs_capture_stream.erl` | the same |
 | Sinks: window, speaker, file | `src/webrtc_codecs_playback.erl` | `test/webrtc_codecs_playback_tests.erl` |
 | IVF and WAV files | `src/webrtc_codecs_file.erl` | `test/webrtc_codecs_file_tests.erl` |
 | The test picture and tone, PSNR, SNR | `src/webrtc_codecs_pattern.erl` | `test/webrtc_codecs_pattern_tests.erl` |
@@ -44,19 +48,6 @@ module.
 | `test/webrtc_codecs_browser_SUITE.erl` | The video plugins against headless Chromium, both ways. Skips itself without the browser peer of erlang_webrtc |
 | `test/webrtc_codecs_lifecycle_SUITE.erl` | Native contexts shared, left by killed owners, fed bad media for long, created and dropped in numbers |
 | `test/corpus/` | Twelve encoded frames per codec, decoded and compared with FFmpeg |
-
-## Inside the largest module
-
-`src/webrtc_codecs_capture.erl` holds five things. Find the one you need by
-its functions:
-
-| Part | Functions |
-|---|---|
-| Listing devices, per system | `devices/0`, `avfoundation_devices/1`, `dshow_devices/1`, `v4l2_name/1` |
-| FFmpeg's command line: what to read | `input/3`, `device_input/3`, `generated/3`, `pace/1` |
-| FFmpeg's command line: what to write | `output/3`, `raw_output/2`, `default_encoder/2`, `encoder_options/1`, `container/1` |
-| The process and its socket | `init/1`, `handle_info/2`, `accept/1`, `ended/1`, `terminate/2` |
-| Cutting the stream and the drop policy | `deliver/2`, `encoded/3`, `keyframe/2`, `behind/1`, `raw/3` |
 
 ## Change with care
 

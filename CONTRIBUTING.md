@@ -161,14 +161,16 @@ reader, anything else from the library. Call the module's `frame_info/2` on
 the frame to see what the reader makes of it, and
 `webrtc_codecs:available/0` to see that the codec is built.
 
-**Add a capture source, or an encoder for encoded capture.** A source is a
-clause of `input/3` in `webrtc_codecs_capture`. An encoder is a clause of
-`default_encoder/2` and of `encoder_options/1`, which holds its real time
-settings. Test it with FFmpeg's generated sources, and say in
+**Add a capture source, or an encoder for encoded capture.** Both are in
+`webrtc_codecs_capture_command`. A source is a clause of `input/3`. An
+encoder is a clause of `default_encoder/2` and of `encoder_options/1`, which
+holds its real time settings. A new stream format is cut in
+`webrtc_codecs_capture_stream`. Test it with FFmpeg's generated sources, and say in
 [docs/capture.md](docs/capture.md) what was and was not run.
 
-**Support devices on another system.** `device_input/3` names the device for
-FFmpeg, `devices/2` lists them by reading what FFmpeg prints. Opening a real
+**Support devices on another system.** `device_input/3` in
+`webrtc_codecs_capture_command` names the device for FFmpeg;
+`webrtc_codecs_capture_devices` lists them by reading what FFmpeg prints. Opening a real
 device needs a person, so say in the guide that it was tried by hand, and
 how.
 
