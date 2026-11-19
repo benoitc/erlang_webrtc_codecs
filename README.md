@@ -44,8 +44,8 @@ Experimental. What that means today:
   The package bounds what it hands them, and was run under sanitizers, but
   that is not a proof. [Limits and what they do not cover](docs/limits.md)
   is the honest list.
-- **erlang_webrtc is itself in development.** The plugins build against its
-  `feature/webrtc-stack` branch.
+- **It follows erlang_webrtc.** The plugins build against erlang_webrtc
+  0.1.0, which is itself a first release.
 
 Reports of what works or breaks on your setup are welcome as issues.
 

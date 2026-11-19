@@ -16,9 +16,9 @@ why a plugin behaves as it does, or when you plan a change to the behaviour.
 
 ## Issues met in erlang_webrtc
 
-Found while testing the plugins, on `feature/webrtc-stack` at `a09466e`.
-They are not worked around in erlang_webrtc; each says what this package
-does meanwhile.
+Found while testing the plugins, and still there in erlang_webrtc 0.1.0
+(`9bbbd24`). They are not worked around in erlang_webrtc; each says what
+this package does meanwhile.
 
 - **AV1 and H.264 frames are dropped after padding on the media stream.**
   A padding-only RTP packet received on the media SSRC is counted
@@ -26,11 +26,11 @@ does meanwhile.
   `webrtc_frame_buffer:padding/3`, so the frame buffer sees its sequence
   number as a loss. VP8 and VP9 are told apart by their picture IDs; codecs
   without one get every later frame dropped and a key frame asked for again
-  and again. It showed between two erlang_webrtc peers on loopback that
-  negotiated AV1 without its `rtx` format: no packet was lost, the receiver
-  counted more packets than the media packets sent, and 29 frames of 30 were
-  dropped. With `rtx` negotiated it does not happen, so the tests and the
-  guides keep `rtx`.
+  and again. It shows between two erlang_webrtc peers on loopback that
+  negotiated AV1 or H.264 without its `rtx` format: no packet is lost, the
+  receiver counts more packets than the media packets sent, and 1 frame of
+  60 is decoded. With `rtx` negotiated all 60 are, and VP8 decodes all 60
+  either way, so the tests and the guides keep `rtx`.
 - **The VP9 file of the frame corpus is profile 1.**
   `test/corpora/frames/vp9.ivf` was encoded from RGB without `-pix_fmt
   yuv420p`, so it is 4:4:4, which the VP9 plugin does not decode. The tests
