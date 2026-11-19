@@ -6,13 +6,7 @@ on:
   pull_request:
     branches: [main]
 
-# erlang_webrtc is a private repository for now: every job checks it out
-# into _checkouts, which rebar3 builds in place of the fetched
-# dependency, with the token in the ERLANG_WEBRTC_TOKEN secret (read
-# access to benoitc/erlang_webrtc). Once that repository is public the
-# secret is not needed any more.
 env:
-  ERLANG_WEBRTC_REF: feature/webrtc-stack
   # A codec library that is missing fails the build, so no native test
   # is skipped without notice.
   WEBRTC_CODECS_REQUIRE: "opus;vpx;openh264;dav1d;aom"
@@ -23,13 +17,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/checkout@v4
-        with:
-          repository: benoitc/erlang_webrtc
-          ref: ${{ env.ERLANG_WEBRTC_REF }}
-          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
-          path: _checkouts/webrtc
 
       - name: Set up Erlang
         uses: erlef/setup-beam@v1
@@ -85,13 +72,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: benoitc/erlang_webrtc
-          ref: ${{ env.ERLANG_WEBRTC_REF }}
-          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
-          path: _checkouts/webrtc
-
       # brew ships the current OTP; the point of this job is the
       # platform, which the Linux job does not cover.
       - name: Set up Erlang, FFmpeg and the codec libraries
@@ -113,13 +93,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: benoitc/erlang_webrtc
-          ref: ${{ env.ERLANG_WEBRTC_REF }}
-          token: ${{ secrets.ERLANG_WEBRTC_TOKEN || github.token }}
-          path: _checkouts/webrtc
-
       - name: Test on FreeBSD
         uses: vmactions/freebsd-vm@v1
         with:
@@ -129,7 +102,7 @@ jobs:
           # The versioned Erlang package installs outside the default
           # PATH, and the rebar3 package brings another Erlang with it.
           prepare: |
-            pkg install -y erlang-runtime29 cmake-core pkgconf opus libvpx openh264 dav1d aom ffmpeg
+            pkg install -y git erlang-runtime29 cmake-core pkgconf opus libvpx openh264 dav1d aom ffmpeg
           run: |
             export PATH="/usr/local/lib/erlang29/bin:/usr/local/bin:$PATH"
             erl -noshell -eval 'io:format("OTP ~s~n", [erlang:system_info(otp_release)]), halt().'
