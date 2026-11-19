@@ -127,7 +127,7 @@ slow_owner() ->
     {ok, Pid} = ?M:start({test, video}, #{
         width => 64, height => 48, frame_rate => 60, max_queue => 3
     }),
-    timer:sleep(1000),
+    captured(Pid, 21),
     #{captured := Captured, dropped := Dropped} = ?M:stats(Pid),
     {message_queue_len, Queued} = process_info(self(), message_queue_len),
     ok = ?M:stop(Pid),
@@ -305,7 +305,7 @@ encoded_slow_owner() ->
                 max_queue => 3,
                 encode => #{codec => vp8, keyframe_interval => 10}
             }),
-            timer:sleep(1500),
+            captured(Pid, 21),
             #{captured := Captured, dropped := Dropped} = ?M:stats(Pid),
             ?assert(Dropped > 0),
             %% What waits starts with a key frame, and a frame that is not
@@ -400,7 +400,9 @@ bad_header() ->
 flood() ->
     {Pid, PidFile} = fake("flood", #{max_queue => 3}),
     OsPid = os_pid(PidFile),
-    timer:sleep(1500),
+    captured(Pid, 1001),
+    %% Everything past the few the owner has waiting was dropped.
+    timer:sleep(100),
     #{captured := Captured, dropped := Dropped} = ?M:stats(Pid),
     {message_queue_len, Queued} = process_info(Pid, message_queue_len),
     {memory, Memory} = process_info(Pid, memory),
@@ -448,6 +450,20 @@ noisy_forever() ->
     ?assertEqual(10000, byte_size(Out)),
     ?assert(Elapsed >= 1500 andalso Elapsed < 7000),
     ?assertNot(alive(os_pid(PidFile))).
+
+%% Wait until the capture has read that many, however long its program
+%% takes to start on this machine.
+captured(Pid, Count) -> captured(Pid, Count, erlang:monotonic_time(millisecond) + 30000).
+
+captured(Pid, Count, Deadline) ->
+    case ?M:stats(Pid) of
+        #{captured := Captured} when Captured >= Count ->
+            ok;
+        _ ->
+            ?assert(erlang:monotonic_time(millisecond) < Deadline),
+            timer:sleep(50),
+            captured(Pid, Count, Deadline)
+    end.
 
 flush() ->
     receive

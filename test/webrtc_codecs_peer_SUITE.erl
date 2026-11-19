@@ -239,7 +239,10 @@ capture() ->
     }),
     {ok, Microphone} = webrtc_codecs_capture:start({test, audio}, #{sample_rate => 8000}),
     Mids = #{Microphone => <<"0">>, Camera => <<"1">>},
-    Deadline = erlang:monotonic_time(millisecond) + 1000,
+    %% Until that much was captured, however long the programs take to
+    %% start on this machine.
+    Wanted = #{Camera => 20, Microphone => 40},
+    Deadline = {Wanted, erlang:monotonic_time(millisecond) + 30000},
     {Sent, Decoded0} = forward(A, B, Mids, #{Camera => 0, Microphone => 0}, [], Deadline),
     ok = webrtc_codecs_capture:stop(Camera),
     ok = webrtc_codecs_capture:stop(Microphone),
@@ -271,11 +274,20 @@ capture() ->
     ok = webrtc:close(A),
     ok = webrtc:close(B).
 
-%% Give what the captures send to send_media/3 until the deadline, and
+%% Give what the captures send to send_media/3 until each has given what
+%% is wanted of it, or the deadline, and
 %% read the events of the peers as they come: a capture drops what its
 %% owner leaves waiting. Returns the count per capture and what B
 %% decoded so far.
-forward(A, B, Mids, Counts, Decoded, Deadline) ->
+forward(A, B, Mids, Counts, Decoded, {Wanted, Until} = Deadline) ->
+    Enough = maps:fold(
+        fun(Pid, Count, Ok) -> Ok andalso maps:get(Pid, Counts) >= Count end, true, Wanted
+    ),
+    forward(Enough, A, B, Mids, Counts, Decoded, Deadline, Until).
+
+forward(true, _A, _B, _Mids, Counts, Decoded, _Deadline, _Until) ->
+    {Counts, lists:reverse(Decoded)};
+forward(false, A, B, Mids, Counts, Decoded, Deadline, Until) ->
     receive
         {webrtc_capture, Pid, #{format := _} = Raw} when is_map_key(Pid, Mids) ->
             ok = webrtc:send_media(A, maps:get(Pid, Mids), Raw),
@@ -286,7 +298,7 @@ forward(A, B, Mids, Counts, Decoded, Deadline) ->
             forward(A, B, Mids, Counts, [Event | Decoded], Deadline);
         {webrtc, _, _} ->
             forward(A, B, Mids, Counts, Decoded, Deadline)
-    after max(0, Deadline - erlang:monotonic_time(millisecond)) ->
+    after max(0, Until - erlang:monotonic_time(millisecond)) ->
         {Counts, lists:reverse(Decoded)}
     end.
 
@@ -314,7 +326,8 @@ capture_encoded() ->
     {ok, Camera} = webrtc_codecs_capture:start({test, video}, #{
         width => 320, height => 240, frame_rate => 30, encode => #{codec => vp8, bitrate => 400000}
     }),
-    {Sent, Decoded0} = send_frames(A, B, Camera, 0, [], erlang:monotonic_time(millisecond) + 1000),
+    %% Thirty frames, however long FFmpeg takes to start on this machine.
+    {Sent, Decoded0} = send_frames(A, B, Camera, 0, [], erlang:monotonic_time(millisecond) + 30000),
     ok = webrtc_codecs_capture:stop(Camera),
     ?assert(Sent >= 20),
     Decoded =
@@ -339,6 +352,8 @@ capture_encoded() ->
     ok = webrtc:close(A),
     ok = webrtc:close(B).
 
+send_frames(_A, _B, _Camera, Sent, Decoded, _Deadline) when Sent >= 30 ->
+    {Sent, lists:reverse(Decoded)};
 send_frames(A, B, Camera, Sent, Decoded, Deadline) ->
     receive
         {webrtc_capture, Camera, #{data := Data, timestamp := Ts, keyframe := Key}} ->
