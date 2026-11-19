@@ -2,6 +2,8 @@
 
 This page is for people changing erlang_webrtc_codecs itself. For using it,
 start with the [README](README.md) and [docs/raw-media.md](docs/raw-media.md).
+Before you change anything, read [How it works](docs/architecture.md), then
+find the file and the test in the [module map](docs/module-map.md).
 
 ## Write for the person who reads it
 
@@ -135,6 +137,51 @@ wrong format, and a truncated or corrupt frame.
    code.
 4. Add its guide under `docs/`, a row in the README table and a CHANGELOG
    entry.
+
+## If you want to...
+
+Each of these names the files to open. The [module map](docs/module-map.md)
+has the tests.
+
+**Add an option to a codec.** Read it in the module's `init`, validate it
+there (a bad value is `{error, {badarg, Opts}}`, never a crash later), add a
+row to the options table of the codec's guide, and a test for the good and
+the bad value. Options shared by the video codecs are validated in `init/3` of `webrtc_codecs_video`.
+
+**Change or add a limit.** A limit on what a peer can cause is enforced in
+Erlang before a library is called: in the codec's `frame_info/2` for
+pictures, in `decode/2` for sizes. Add it to
+[docs/limits.md](docs/limits.md), and write a test with a frame that
+declares too much and never reaches the library.
+
+**Find out why a frame is not decoded.** Look at the dropped output
+(`#{dropped => Reason}`): `waiting_for_keyframe` means an earlier frame
+failed, `too_large` and `unsupported_parameter_set` come from the header
+reader, anything else from the library. Call the module's `frame_info/2` on
+the frame to see what the reader makes of it, and
+`webrtc_codecs:available/0` to see that the codec is built.
+
+**Add a capture source, or an encoder for encoded capture.** A source is a
+clause of `input/3` in `webrtc_codecs_capture`. An encoder is a clause of
+`default_encoder/2` and of `encoder_options/1`, which holds its real time
+settings. Test it with FFmpeg's generated sources, and say in
+[docs/capture.md](docs/capture.md) what was and was not run.
+
+**Support devices on another system.** `device_input/3` names the device for
+FFmpeg, `devices/2` lists them by reading what FFmpeg prints. Opening a real
+device needs a person, so say in the guide that it was tried by hand, and
+how.
+
+**Change native code.** Read the first principle in
+[AGENTS.md](https://github.com/benoitc/erlang_webrtc_codecs/blob/main/AGENTS.md).
+Check every size and every return code, read nothing from a resource after
+releasing it, and give constructors a fault injection point per allocation.
+Then run `scripts/test-sanitizers.sh` and the tests on the three systems.
+
+**Change how FFmpeg is run or ended.** That is `webrtc_codecs_exec`, used by
+capture and playback. Whatever you change, stopping has to return and the
+program has to be gone: add a mode to `test/fake_ffmpeg.escript` that
+misbehaves the way you are guarding against.
 
 ## Documentation
 

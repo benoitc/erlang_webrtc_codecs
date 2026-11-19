@@ -6,6 +6,30 @@ so that they can understand it, change it and check their change. It edits
 no source code. You decide which findings have to be fixed before 0.1.0 and
 which can wait; nothing is released until then.
 
+## State on 2026-11-19, after the 0.1.0 release
+
+Done since this plan was written:
+
+- Release blockers: the dependency is `webrtc` 0.1.0 from Hex, `LICENSE` and
+  `SECURITY.md` exist, the CHANGELOG has one 0.1.0 section, the README
+  status is current. 0.1.0 is tagged and released on GitHub.
+- `docs/glossary.md`, `docs/architecture.md` (with the two paths) and
+  `docs/module-map.md` exist, and the README has a "Where to start" section
+  with the three doors.
+- `CONTRIBUTING.md` has the "If you want to..." guides.
+- The codec guides no longer repeat the install commands.
+
+Still open:
+
+- `AGENTS.md` keeps its own copy of the architecture and test sections: the
+  maintainer chose to leave that file as it is.
+- `docs/behaviour-gaps.md` still holds the two issues met in erlang_webrtc.
+  They were rechecked against 0.1.0 and are still there; they have not been
+  filed upstream.
+- The split of `webrtc_codecs_capture`, the shared helpers in the C code and
+  a docs drift check: after the release, not started.
+- Questions 4, 5, 6 and 9 of section 13 have no answer yet.
+
 ## What it found, in short
 
 - **The user side is in good shape.** A reader who wants to use a codec
