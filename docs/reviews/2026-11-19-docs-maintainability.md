@@ -22,6 +22,9 @@ Done since this plan was written:
   process stays (345 lines, a third of it documentation and types), device
   listing, FFmpeg's command line and stream cutting are internal modules of
   98, 139 and 176 lines. Its public API did not change.
+- `webrtc_codecs_docs_tests` checks the module map against the source tree,
+  the links between pages and the pages of the documentation build. It does
+  not check the code blocks of the guides.
 - The constructor pattern of the NIFs is written once in the shared header,
   with the plane copy and fault injection for every constructor.
 
@@ -32,8 +35,7 @@ Still open:
 - `docs/behaviour-gaps.md` still holds the two issues met in erlang_webrtc.
   They were rechecked against 0.1.0 and are still there; they have not been
   filed upstream.
-- A docs drift check: not started.
-- Questions 4, 5, 6 and 9 of section 13 have no answer yet.
+- Questions 4, 5 and 6 of section 13 have no answer yet.
 
 ## What it found, in short
 

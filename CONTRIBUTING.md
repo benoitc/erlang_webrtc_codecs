@@ -187,5 +187,11 @@ misbehaves the way you are guarding against.
 
 ## Documentation
 
+`webrtc_codecs_docs_tests`, run by `rebar3 eunit`, fails when the module map
+misses a source file or names one that is gone, when a link between pages
+leads nowhere, or when a guide is not in the documentation build. Add your
+module to [docs/module-map.md](docs/module-map.md) and your page to the
+`ex_doc` extras in `rebar.config`.
+
 Guides are task-oriented and in the second person: one paragraph saying what
 the page is and when you need it, then steps with code, then short notes.

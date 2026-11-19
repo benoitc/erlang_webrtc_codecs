@@ -27,7 +27,7 @@ These are internal and may change without notice: `webrtc_codecs_video`,
 | AV1: options, OBU reading | `src/webrtc_codecs_av1.erl` | `test/webrtc_codecs_av1_tests.erl` |
 | Opus: options, lost frames, bitrate | `src/webrtc_codecs_opus.erl` | `test/webrtc_codecs_opus_tests.erl` |
 | G.711 | `src/webrtc_codecs_g711.erl` | `test/webrtc_codecs_g711_tests.erl` |
-| A call into a codec library | `c_src/webrtc_codecs_<lib>_nif.c`, declared in `src/webrtc_codecs_<lib>_nif.erl` | the codec's tests, `test/webrtc_codecs_lifecycle_SUITE.erl`, `scripts/test-sanitizers.sh` |
+| A call into a codec library | `c_src/webrtc_codecs_<lib>_nif.c`, declared in `src/webrtc_codecs_<lib>_nif.erl`, which finds its library through `src/webrtc_codecs_nif.erl` | the codec's tests, `test/webrtc_codecs_lifecycle_SUITE.erl`, `scripts/test-sanitizers.sh` |
 | What the NIFs share: how a constructor allocates, fails and hands over, copying a plane, fault injection | `c_src/webrtc_codecs_nif.h` | `test/webrtc_codecs_nif_tests.erl`, all of the above |
 | How FFmpeg is started, watched and ended | `src/webrtc_codecs_exec.erl` | the capture and playback tests, with `test/fake_ffmpeg.escript` |
 | Capture: its options, the process, its socket, how it ends | `src/webrtc_codecs_capture.erl` | `test/webrtc_codecs_capture_tests.erl` |
