@@ -1,22 +1,14 @@
-%% Test helper: the encoded video of erlang_webrtc's corpus
-%% (test/corpora/frames), and FFmpeg as a reference decoder.
+%% Test helper: the encoded video of test/corpus, and FFmpeg as a
+%% reference decoder.
 -module(webrtc_codecs_test_media).
 
 -export([root/0, corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
 
-%% The path of a corpus file, or false when the dependency was fetched
-%% without its tests. erlang_webrtc is under _build as a fetched
-%% dependency and under _checkouts as a checkout. Where a build must
-%% have every codec (WEBRTC_CODECS_REQUIRE), a missing corpus is an
-%% error, so that its tests are not skipped without notice.
+%% The path of a corpus file: the encoded video of test/corpus.
 corpus(File) ->
-    Dirs = [code:lib_dir(webrtc), filename:join([root(), "_checkouts", "webrtc"])],
-    Paths = [filename:join([Dir, "test", "corpora", "frames", File]) || Dir <- Dirs],
-    case {[P || P <- Paths, filelib:is_regular(P)], os:getenv("WEBRTC_CODECS_REQUIRE")} of
-        {[Path | _], _} -> Path;
-        {[], Required} when Required =:= false; Required =:= "" -> false;
-        {[], _} -> error({no_corpus, Paths})
-    end.
+    Path = filename:join([root(), "test", "corpus", File]),
+    true = filelib:is_regular(Path),
+    Path.
 
 %% The directory of this package, from wherever the tests run.
 root() ->

@@ -105,5 +105,6 @@ decoded and the audio samples received.
 - The demo serves on 127.0.0.1 only, without authentication: it is a way to
   try the package, not something to expose.
 - Verified with FFmpeg's generated sources and headless Chromium: 640 x 480
-  at 30 frames per second and 48 kHz audio, no frame dropped. A real camera,
-  a real microphone and the speaker need a person, so that part is yours.
+  at 30 frames per second and 48 kHz audio, no frame dropped. With a real
+  camera, a real microphone and the browser's microphone it was tried by
+  hand on macOS with Safari.

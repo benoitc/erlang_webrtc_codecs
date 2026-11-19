@@ -6,5 +6,21 @@
     {env, []},
     {modules, []},
     {licenses, ["Apache-2.0"]},
-    {links, [{"GitHub", "https://github.com/benoitc/erlang_webrtc_codecs"}]}
+    {links, [
+        {"GitHub", "https://github.com/benoitc/erlang_webrtc_codecs"},
+        {"Changelog", "https://github.com/benoitc/erlang_webrtc_codecs/blob/main/CHANGELOG.md"}
+    ]},
+    %% The sources of the NIFs, not what a build left in c_src/build or priv.
+    {files, [
+        "src",
+        "c_src/*.c",
+        "c_src/*.h",
+        "c_src/CMakeLists.txt",
+        "c_src/build_nif.sh",
+        "rebar.config",
+        "rebar.lock",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+    ]}
 ]}.

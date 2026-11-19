@@ -1,4 +1,8 @@
-[{<<"webrtc">>,
-  {git,"https://github.com/benoitc/erlang_webrtc.git",
-       {ref,"9bbbd244bdf6e4fb1d88fdc7a649974ca4fda550"}},
-  0}].
+{"1.2.0",
+[{<<"webrtc">>,{pkg,<<"webrtc">>,<<"0.1.0">>},0}]}.
+[
+{pkg_hash,[
+ {<<"webrtc">>, <<"EB436A4D76BB49D12A4BD739F213DF5D9255E117A425BF8558BEAFB8DBF53DF9">>}]},
+{pkg_hash_ext,[
+ {<<"webrtc">>, <<"DA932E39DB5E07F59FE3CB70537CE5231E5EAA40ED210EBFB329E76D78BF5E84">>}]}
+].

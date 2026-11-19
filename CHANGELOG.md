@@ -1,41 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-11-19)
 
-Experimental: nothing has been released yet, and anything below may change.
-
-### Fixed
-
-- Opus: a decoder or encoder that failed to start read memory it had just
-  released. It now reports the error cleanly.
-- H.264: the picture size limit only looked at the first parameter set of a
-  key frame, at the size shown rather than the size decoded, and let a set
-  it could not read through. Every parameter set is now checked, and one
-  that cannot be read is refused.
-- VP9: the picture size limit only looked at the first frame of a buffer,
-  while the library decodes all of them. Every frame is now checked.
-- Capture kept growing memory when the program wrote something that was not
-  the expected stream, or wrote faster than it was read. It now stops with
-  an error in the first case and holds the program back in the second.
-- Recording to a file could block for ever when FFmpeg stopped reading, and
-  stopping could return before the file was finished or with FFmpeg still
-  running. Writes now have a deadline, stopping tells whether the file was
-  finished, and the program is always ended.
-- Messages of FFmpeg were written to a file with no size limit. Only their
-  end is kept, in memory.
-- Listing devices could wait for ever on a program that kept writing.
-- The H.264 encoder ignored some errors of the library.
-
-### Changed
-
-- `webrtc_codecs_playback:stop/1` returns `{error, {not_finalized, _, _}}`
-  when a file was not finished, and `play/2` can return `{error, stalled}`.
-- Errors of capture and playback carry the end of what the program said,
-  and `killed` in place of an exit status when it had to be killed.
-- `webrtc_codecs_h264:sps_size/1` is replaced by `sps_info/1`, which gives
-  the size as coded and as shown.
-- An H.264 frame with a parameter set of a profile OpenH264 does not decode
-  is dropped instead of tried.
+First release. Experimental: the API, the options and the shape of the raw
+media may change.
 
 ### Added
 
@@ -65,3 +33,13 @@ Experimental: nothing has been released yet, and anything below may change.
 - Reading and writing of IVF and WAV files.
 - A test picture and a test tone to feed an encoder without a camera or a
   microphone, and PSNR and SNR to compare what comes back.
+- Limits on what a peer can cause: a picture over `max_pixels` is refused
+  before the codec library is called, for every frame and parameter set the
+  library would read, and frames that cannot be decoded are dropped and
+  reported. `docs/limits.md` lists every limit and what is not covered.
+- External programs are always ended: capture and playback run FFmpeg
+  outside the VM with deadlines, keep only the end of what it says, and
+  `webrtc_codecs_playback:stop/1` tells whether a file was finished.
+- A demo that shows the camera and the microphone of the machine in a
+  browser.
+- Builds and tests on macOS, Linux (Debian, Alpine) and FreeBSD.
