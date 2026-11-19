@@ -91,7 +91,6 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     aom_codec_iface_t *iface = aom_codec_av1_cx();
     aom_codec_err_t err;
     encoder_t *e;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (!enif_get_int(env, argv[0], &w) || !enif_get_int(env, argv[1], &h) || w < 2 || h < 2 ||
@@ -107,14 +106,12 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     if (cpu_used > 11)
         cpu_used = 11;
 
-    e = enif_alloc_resource(encoder_type, sizeof(*e));
+    e = wc_resource(encoder_type, sizeof(*e));
     if (!e)
         return wc_error(env, "alloc_fail");
-    memset(e, 0, sizeof(*e));
-    e->lock = enif_mutex_create("webrtc_codecs_aom_encoder");
+    e->lock = wc_mutex("webrtc_codecs_aom_encoder");
     if (!e->lock) {
-        enif_release_resource(e);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, e, "alloc_fail");
     }
 
     err = aom_codec_enc_config_default(iface, &e->cfg, AOM_USAGE_REALTIME);
@@ -144,19 +141,16 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         e->cfg.kf_mode = AOM_KF_AUTO;
         e->cfg.kf_min_dist = 0;
         e->cfg.kf_max_dist = (unsigned int)interval;
-        err = aom_codec_enc_init(&e->ctx, iface, &e->cfg, 0);
+        err = wc_fail() ? AOM_CODEC_MEM_ERROR : aom_codec_enc_init(&e->ctx, iface, &e->cfg, 0);
     }
     if (err == AOM_CODEC_OK) {
         e->open = 1;
         err = encoder_controls(e, cpu_used);
     }
     if (err != AOM_CODEC_OK) {
-        enif_release_resource(e);
-        return wc_error(env, aom_reason(err));
+        return wc_new_failed(env, e, aom_reason(err));
     }
-    term = enif_make_resource(env, e);
-    enif_release_resource(e);
-    return wc_ok(env, term);
+    return wc_new_ok(env, e);
 }
 
 /* encoder_bitrate(Encoder, BitsPerSecond) */
@@ -199,11 +193,7 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         !enif_inspect_binary(env, argv[2], &u) || !enif_inspect_binary(env, argv[3], &v) ||
         !enif_get_uint64(env, argv[4], &pts) || !enif_get_ulong(env, argv[5], &duration) || duration == 0)
         return enif_make_badarg(env);
-    if (enif_is_identical(argv[6], wc_atom(env, "true")))
-        force = 1;
-    else if (enif_is_identical(argv[6], wc_atom(env, "false")))
-        force = 0;
-    else
+    if (!wc_get_bool(env, argv[6], &force))
         return enif_make_badarg(env);
 
     w = e->cfg.g_w;
@@ -269,6 +259,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 }
 
 static ErlNifFunc nif_funcs[] = {
+    WC_FAULT_NIF
     {"version", 0, version, 0},
     {"encoder_new", 3, encoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_bitrate", 2, encoder_bitrate, ERL_NIF_DIRTY_JOB_CPU_BOUND},

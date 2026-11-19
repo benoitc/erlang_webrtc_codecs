@@ -5,7 +5,7 @@
 %% NIF when dav1d was not there at build time: loaded/0 is then false
 %% and every other function raises nif_not_loaded.
 
--export([loaded/0, version/0]).
+-export([loaded/0, version/0, fail_after/1]).
 -export([decoder_new/2, decode/2]).
 
 -export_type([decoder/0, reason/0]).
@@ -36,6 +36,11 @@ loaded() ->
 
 -spec version() -> binary().
 version() -> erlang:nif_error(nif_not_loaded).
+
+%% Only in a build with WEBRTC_CODECS_FAULT_INJECTION: the Nth allocation
+%% from now on fails, once; 0 disarms. Raises nif_not_loaded elsewhere.
+-spec fail_after(non_neg_integer()) -> ok.
+fail_after(_Count) -> erlang:nif_error(nif_not_loaded).
 
 -spec decoder_new(pos_integer(), pos_integer()) -> {ok, decoder()} | {error, reason()}.
 decoder_new(_Threads, _MaxPixels) -> erlang:nif_error(nif_not_loaded).

@@ -106,46 +106,28 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     vpx_codec_dec_cfg_t cfg;
     vpx_codec_err_t err;
     decoder_t *d;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (vp9 < 0 || !enif_get_int(env, argv[1], &threads) || threads < 1 || threads > 64 ||
         !enif_get_ulong(env, argv[2], &max_pixels) || max_pixels == 0)
         return enif_make_badarg(env);
 
-    d = enif_alloc_resource(decoder_type, sizeof(*d));
+    d = wc_resource(decoder_type, sizeof(*d));
     if (!d)
         return wc_error(env, "alloc_fail");
-    memset(d, 0, sizeof(*d));
     d->max_pixels = max_pixels;
-    d->lock = enif_mutex_create("webrtc_codecs_vpx_decoder");
+    d->lock = wc_mutex("webrtc_codecs_vpx_decoder");
     if (!d->lock) {
-        enif_release_resource(d);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, d, "alloc_fail");
     }
     memset(&cfg, 0, sizeof(cfg));
     cfg.threads = (unsigned int)threads;
-    err = vpx_codec_dec_init(&d->ctx, vp9 ? vpx_codec_vp9_dx() : vpx_codec_vp8_dx(), &cfg, 0);
+    err = wc_fail() ? VPX_CODEC_MEM_ERROR : vpx_codec_dec_init(&d->ctx, vp9 ? vpx_codec_vp9_dx() : vpx_codec_vp8_dx(), &cfg, 0);
     if (err != VPX_CODEC_OK) {
-        enif_release_resource(d);
-        return wc_error(env, vpx_reason(err));
+        return wc_new_failed(env, d, vpx_reason(err));
     }
     d->open = 1;
-    term = enif_make_resource(env, d);
-    enif_release_resource(d);
-    return wc_ok(env, term);
-}
-
-/* Copy one plane without its padding into a new binary. */
-static ERL_NIF_TERM plane(ErlNifEnv *env, const unsigned char *src, int stride, unsigned int w, unsigned int h)
-{
-    ERL_NIF_TERM term;
-    unsigned char *dst = enif_make_new_binary(env, (size_t)w * h, &term);
-    unsigned int row;
-
-    for (row = 0; row < h; row++)
-        memcpy(dst + (size_t)row * w, src + (size_t)row * stride, w);
-    return term;
+    return wc_new_ok(env, d);
 }
 
 /* decode(Decoder, Data) -> {ok, [{Width, Height, Y, U, V}], Qp} | {error, Reason} */
@@ -187,9 +169,9 @@ static ERL_NIF_TERM decode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             list = enif_make_list_cell(
                 env,
                 enif_make_tuple5(env, enif_make_uint(env, w), enif_make_uint(env, h),
-                                 plane(env, img->planes[VPX_PLANE_Y], img->stride[VPX_PLANE_Y], w, h),
-                                 plane(env, img->planes[VPX_PLANE_U], img->stride[VPX_PLANE_U], cw, ch),
-                                 plane(env, img->planes[VPX_PLANE_V], img->stride[VPX_PLANE_V], cw, ch)),
+                                 wc_plane(env, img->planes[VPX_PLANE_Y], img->stride[VPX_PLANE_Y], w, h),
+                                 wc_plane(env, img->planes[VPX_PLANE_U], img->stride[VPX_PLANE_U], cw, ch),
+                                 wc_plane(env, img->planes[VPX_PLANE_V], img->stride[VPX_PLANE_V], cw, ch)),
                 list);
         }
         if (!reason && vpx_codec_control(&d->ctx, VPXD_GET_LAST_QUANTIZER, &qp) != VPX_CODEC_OK)
@@ -235,7 +217,6 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     vpx_codec_iface_t *iface;
     vpx_codec_err_t err;
     encoder_t *e;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (vp9 < 0 || !enif_get_int(env, argv[1], &w) || !enif_get_int(env, argv[2], &h) || w < 2 || h < 2 ||
@@ -247,14 +228,12 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         bitrate < 1000 || threads < 1 || threads > 64 || cpu_used < -16 || cpu_used > 16 || interval < 1)
         return enif_make_badarg(env);
 
-    e = enif_alloc_resource(encoder_type, sizeof(*e));
+    e = wc_resource(encoder_type, sizeof(*e));
     if (!e)
         return wc_error(env, "alloc_fail");
-    memset(e, 0, sizeof(*e));
-    e->lock = enif_mutex_create("webrtc_codecs_vpx_encoder");
+    e->lock = wc_mutex("webrtc_codecs_vpx_encoder");
     if (!e->lock) {
-        enif_release_resource(e);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, e, "alloc_fail");
     }
 
     iface = vp9 ? vpx_codec_vp9_cx() : vpx_codec_vp8_cx();
@@ -283,19 +262,16 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         e->cfg.kf_mode = VPX_KF_AUTO;
         e->cfg.kf_min_dist = 0;
         e->cfg.kf_max_dist = (unsigned int)interval;
-        err = vpx_codec_enc_init(&e->ctx, iface, &e->cfg, 0);
+        err = wc_fail() ? VPX_CODEC_MEM_ERROR : vpx_codec_enc_init(&e->ctx, iface, &e->cfg, 0);
     }
     if (err == VPX_CODEC_OK) {
         e->open = 1;
         err = encoder_controls(e, vp9, cpu_used);
     }
     if (err != VPX_CODEC_OK) {
-        enif_release_resource(e);
-        return wc_error(env, vpx_reason(err));
+        return wc_new_failed(env, e, vpx_reason(err));
     }
-    term = enif_make_resource(env, e);
-    enif_release_resource(e);
-    return wc_ok(env, term);
+    return wc_new_ok(env, e);
 }
 
 /* encoder_bitrate(Encoder, BitsPerSecond) */
@@ -338,11 +314,7 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         !enif_inspect_binary(env, argv[2], &u) || !enif_inspect_binary(env, argv[3], &v) ||
         !enif_get_uint64(env, argv[4], &pts) || !enif_get_ulong(env, argv[5], &duration) || duration == 0)
         return enif_make_badarg(env);
-    if (enif_is_identical(argv[6], wc_atom(env, "true")))
-        force = 1;
-    else if (enif_is_identical(argv[6], wc_atom(env, "false")))
-        force = 0;
-    else
+    if (!wc_get_bool(env, argv[6], &force))
         return enif_make_badarg(env);
 
     w = e->cfg.g_w;
@@ -411,6 +383,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 }
 
 static ErlNifFunc nif_funcs[] = {
+    WC_FAULT_NIF
     {"version", 0, version, 0},
     {"decoder_new", 3, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},

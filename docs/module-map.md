@@ -27,7 +27,7 @@ module.
 | Opus: options, lost frames, bitrate | `src/webrtc_codecs_opus.erl` | `test/webrtc_codecs_opus_tests.erl` |
 | G.711 | `src/webrtc_codecs_g711.erl` | `test/webrtc_codecs_g711_tests.erl` |
 | A call into a codec library | `c_src/webrtc_codecs_<lib>_nif.c`, declared in `src/webrtc_codecs_<lib>_nif.erl` | the codec's tests, `test/webrtc_codecs_lifecycle_SUITE.erl`, `scripts/test-sanitizers.sh` |
-| What the NIFs share | `c_src/webrtc_codecs_nif.h` | all of the above |
+| What the NIFs share: how a constructor allocates, fails and hands over, copying a plane, fault injection | `c_src/webrtc_codecs_nif.h` | `test/webrtc_codecs_nif_tests.erl`, all of the above |
 | How FFmpeg is started, watched and ended | `src/webrtc_codecs_exec.erl` | the capture and playback tests, with `test/fake_ffmpeg.escript` |
 | Capture: sources, device listing, encoded capture, the drop policy | `src/webrtc_codecs_capture.erl` | `test/webrtc_codecs_capture_tests.erl` |
 | Sinks: window, speaker, file | `src/webrtc_codecs_playback.erl` | `test/webrtc_codecs_playback_tests.erl` |
@@ -64,6 +64,8 @@ its functions:
   `obu_types/1`, and each module's `frame_info/2`) are what the size limit
   rests on. A reader that lets something through hands a library input
   nobody checked. Change them with a test that declares too much.
-- **A constructor in C** must not read a resource after releasing it. Run
+- **A constructor in C** uses `wc_resource`, `wc_mutex`, `wc_new_failed` and
+  `wc_new_ok` from the shared header, and asks `wc_fail()` before creating
+  the codec. It must not read a resource after releasing it. Run
   `scripts/test-sanitizers.sh` after any change there.
 - **`stop/2` in `webrtc_codecs_exec`** is why no program outlives its owner.

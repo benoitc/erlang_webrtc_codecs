@@ -89,22 +89,19 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     SDecodingParam param;
     int quiet = WELS_LOG_QUIET;
     decoder_t *d;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (!enif_get_ulong(env, argv[0], &max_pixels) || max_pixels == 0)
         return enif_make_badarg(env);
 
-    d = enif_alloc_resource(decoder_type, sizeof(*d));
+    d = wc_resource(decoder_type, sizeof(*d));
     if (!d)
         return wc_error(env, "alloc_fail");
-    memset(d, 0, sizeof(*d));
     d->max_pixels = max_pixels;
-    d->lock = enif_mutex_create("webrtc_codecs_openh264_decoder");
-    if (!d->lock || WelsCreateDecoder(&d->dec) != 0 || !d->dec) {
+    d->lock = wc_mutex("webrtc_codecs_openh264_decoder");
+    if (!d->lock || wc_fail() || WelsCreateDecoder(&d->dec) != 0 || !d->dec) {
         d->dec = NULL;
-        enif_release_resource(d);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, d, "alloc_fail");
     }
     /* Bad media is reported to the caller, not printed. Should the
      * option not take, the decoder works all the same, with its log. */
@@ -117,23 +114,9 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     if ((*d->dec)->Initialize(d->dec, &param) != 0) {
         WelsDestroyDecoder(d->dec);
         d->dec = NULL;
-        enif_release_resource(d);
-        return wc_error(env, "internal_error");
+        return wc_new_failed(env, d, "internal_error");
     }
-    term = enif_make_resource(env, d);
-    enif_release_resource(d);
-    return wc_ok(env, term);
-}
-
-static ERL_NIF_TERM plane(ErlNifEnv *env, const unsigned char *src, int stride, unsigned int w, unsigned int h)
-{
-    ERL_NIF_TERM term;
-    unsigned char *dst = enif_make_new_binary(env, (size_t)w * h, &term);
-    unsigned int row;
-
-    for (row = 0; row < h; row++)
-        memcpy(dst + (size_t)row * w, src + (size_t)row * stride, w);
-    return term;
+    return wc_new_ok(env, d);
 }
 
 /* decode(Decoder, AccessUnit) -> {ok, [{Width, Height, Y, U, V}]} | {error, Reason} */
@@ -173,8 +156,8 @@ static ERL_NIF_TERM decode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
             list = enif_make_list_cell(
                 env,
                 enif_make_tuple5(env, enif_make_int(env, w), enif_make_int(env, h),
-                                 plane(env, dst[0], ys, (unsigned int)w, (unsigned int)h), plane(env, dst[1], cs, cw, ch),
-                                 plane(env, dst[2], cs, cw, ch)),
+                                 wc_plane(env, dst[0], ys, (unsigned int)w, (unsigned int)h), wc_plane(env, dst[1], cs, cw, ch),
+                                 wc_plane(env, dst[2], cs, cw, ch)),
                 list);
         }
     }
@@ -193,7 +176,6 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     int quiet = WELS_LOG_QUIET, format = videoFormatI420;
     SEncParamExt param;
     encoder_t *e;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (!enif_get_int(env, argv[0], &w) || !enif_get_int(env, argv[1], &h) || w < 2 || h < 2 ||
@@ -204,17 +186,15 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         threads > 64 || interval < 1)
         return enif_make_badarg(env);
 
-    e = enif_alloc_resource(encoder_type, sizeof(*e));
+    e = wc_resource(encoder_type, sizeof(*e));
     if (!e)
         return wc_error(env, "alloc_fail");
-    memset(e, 0, sizeof(*e));
     e->width = w;
     e->height = h;
-    e->lock = enif_mutex_create("webrtc_codecs_openh264_encoder");
-    if (!e->lock || WelsCreateSVCEncoder(&e->enc) != 0 || !e->enc) {
+    e->lock = wc_mutex("webrtc_codecs_openh264_encoder");
+    if (!e->lock || wc_fail() || WelsCreateSVCEncoder(&e->enc) != 0 || !e->enc) {
         e->enc = NULL;
-        enif_release_resource(e);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, e, "alloc_fail");
     }
     /* Should the option not take, the encoder works all the same, with
      * its log. */
@@ -226,8 +206,7 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     if ((*e->enc)->GetDefaultParams(e->enc, &param) != 0) {
         WelsDestroySVCEncoder(e->enc);
         e->enc = NULL;
-        enif_release_resource(e);
-        return wc_error(env, "internal_error");
+        return wc_new_failed(env, e, "internal_error");
     }
     param.iUsageType = CAMERA_VIDEO_REAL_TIME;
     param.iPicWidth = w;
@@ -255,17 +234,13 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     if ((*e->enc)->InitializeExt(e->enc, &param) != 0) {
         WelsDestroySVCEncoder(e->enc);
         e->enc = NULL;
-        enif_release_resource(e);
-        return wc_error(env, "invalid_param");
+        return wc_new_failed(env, e, "invalid_param");
     }
     if ((*e->enc)->SetOption(e->enc, ENCODER_OPTION_DATAFORMAT, &format) != 0) {
         /* The destructor uninitializes and destroys the encoder. */
-        enif_release_resource(e);
-        return wc_error(env, "invalid_param");
+        return wc_new_failed(env, e, "invalid_param");
     }
-    term = enif_make_resource(env, e);
-    enif_release_resource(e);
-    return wc_ok(env, term);
+    return wc_new_ok(env, e);
 }
 
 /* encoder_bitrate(Encoder, BitsPerSecond) */
@@ -308,11 +283,7 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
         !enif_inspect_binary(env, argv[2], &u) || !enif_inspect_binary(env, argv[3], &v) ||
         !enif_get_uint64(env, argv[4], &pts))
         return enif_make_badarg(env);
-    if (enif_is_identical(argv[5], wc_atom(env, "true")))
-        force = 1;
-    else if (enif_is_identical(argv[5], wc_atom(env, "false")))
-        force = 0;
-    else
+    if (!wc_get_bool(env, argv[5], &force))
         return enif_make_badarg(env);
 
     w = (unsigned int)e->width;
@@ -387,6 +358,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 }
 
 static ErlNifFunc nif_funcs[] = {
+    WC_FAULT_NIF
     {"version", 0, version, 0},
     {"decoder_new", 1, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},

@@ -62,22 +62,19 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     unsigned long max_pixels;
     Dav1dSettings settings;
     decoder_t *d;
-    ERL_NIF_TERM term;
     (void)argc;
 
     if (!enif_get_int(env, argv[0], &threads) || threads < 1 || threads > 64 ||
         !enif_get_ulong(env, argv[1], &max_pixels) || max_pixels == 0)
         return enif_make_badarg(env);
 
-    d = enif_alloc_resource(decoder_type, sizeof(*d));
+    d = wc_resource(decoder_type, sizeof(*d));
     if (!d)
         return wc_error(env, "alloc_fail");
-    memset(d, 0, sizeof(*d));
     d->max_pixels = max_pixels;
-    d->lock = enif_mutex_create("webrtc_codecs_dav1d_decoder");
+    d->lock = wc_mutex("webrtc_codecs_dav1d_decoder");
     if (!d->lock) {
-        enif_release_resource(d);
-        return wc_error(env, "alloc_fail");
+        return wc_new_failed(env, d, "alloc_fail");
     }
 
     dav1d_default_settings(&settings);
@@ -88,26 +85,12 @@ static ERL_NIF_TERM decoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     settings.frame_size_limit = max_pixels > UINT_MAX ? UINT_MAX : (unsigned)max_pixels;
     /* Bad media is reported to the caller, not printed. */
     settings.logger.callback = NULL;
-    err = dav1d_open(&d->ctx, &settings);
+    err = wc_fail() ? DAV1D_ERR(ENOMEM) : dav1d_open(&d->ctx, &settings);
     if (err < 0) {
         d->ctx = NULL;
-        enif_release_resource(d);
-        return wc_error(env, dav1d_reason(err));
+        return wc_new_failed(env, d, dav1d_reason(err));
     }
-    term = enif_make_resource(env, d);
-    enif_release_resource(d);
-    return wc_ok(env, term);
-}
-
-static ERL_NIF_TERM plane(ErlNifEnv *env, const unsigned char *src, ptrdiff_t stride, unsigned int w, unsigned int h)
-{
-    ERL_NIF_TERM term;
-    unsigned char *dst = enif_make_new_binary(env, (size_t)w * h, &term);
-    unsigned int row;
-
-    for (row = 0; row < h; row++)
-        memcpy(dst + (size_t)row * w, src + (ptrdiff_t)row * stride, w);
-    return term;
+    return wc_new_ok(env, d);
 }
 
 static ERL_NIF_TERM grey(ErlNifEnv *env, unsigned int w, unsigned int h)
@@ -131,8 +114,8 @@ static const char *picture(ErlNifEnv *env, const decoder_t *d, const Dav1dPictur
     if (pic->p.bpc != 8)
         return "unsupported_format";
     if (pic->p.layout == DAV1D_PIXEL_LAYOUT_I420) {
-        u = plane(env, pic->data[1], pic->stride[1], cw, ch);
-        v = plane(env, pic->data[2], pic->stride[1], cw, ch);
+        u = wc_plane(env, pic->data[1], pic->stride[1], cw, ch);
+        v = wc_plane(env, pic->data[2], pic->stride[1], cw, ch);
     } else if (pic->p.layout == DAV1D_PIXEL_LAYOUT_I400) {
         u = grey(env, cw, ch);
         v = grey(env, cw, ch);
@@ -140,7 +123,7 @@ static const char *picture(ErlNifEnv *env, const decoder_t *d, const Dav1dPictur
         return "unsupported_format";
     }
     *term = enif_make_tuple5(env, enif_make_uint(env, w), enif_make_uint(env, h),
-                             plane(env, pic->data[0], pic->stride[0], w, h), u, v);
+                             wc_plane(env, pic->data[0], pic->stride[0], w, h), u, v);
     return NULL;
 }
 
@@ -238,6 +221,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 }
 
 static ErlNifFunc nif_funcs[] = {
+    WC_FAULT_NIF
     {"version", 0, version, 0},
     {"decoder_new", 2, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},
