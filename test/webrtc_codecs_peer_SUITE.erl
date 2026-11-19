@@ -327,9 +327,11 @@ capture_encoded() ->
         width => 320, height => 240, frame_rate => 30, encode => #{codec => vp8, bitrate => 400000}
     }),
     %% Thirty frames, however long FFmpeg takes to start on this machine.
-    {Sent, Decoded0} = send_frames(A, B, Camera, 0, [], erlang:monotonic_time(millisecond) + 30000),
+    {Sent, Decoded0} = send_frames(
+        A, B, Camera, [], [], erlang:monotonic_time(millisecond) + 30000
+    ),
     ok = webrtc_codecs_capture:stop(Camera),
-    ?assert(Sent >= 20),
+    ?assert(length(Sent) >= 20),
     Decoded =
         Decoded0 ++
             collect(
@@ -338,11 +340,15 @@ capture_encoded() ->
                     ({decoded, _, _}) -> true;
                     (_) -> false
                 end,
-                Sent - length(Decoded0),
+                length(Sent) - length(Decoded0),
                 3000
             ),
+    %% Every frame given to send_frame/4 is decoded, in order. On a slow
+    %% machine the capture drops frames while this process is behind,
+    %% up to a key frame, so the timestamps are those sent, not a run
+    %% without holes.
     ?assertEqual(
-        [I * 3000 || I <- lists:seq(0, Sent - 1)],
+        Sent,
         [
             T
          || {decoded, <<"0">>, #{format := i420, width := 320, height := 240, timestamp := T}} <-
@@ -352,19 +358,19 @@ capture_encoded() ->
     ok = webrtc:close(A),
     ok = webrtc:close(B).
 
-send_frames(_A, _B, _Camera, Sent, Decoded, _Deadline) when Sent >= 30 ->
-    {Sent, lists:reverse(Decoded)};
+send_frames(_A, _B, _Camera, Sent, Decoded, _Deadline) when length(Sent) >= 30 ->
+    {lists:reverse(Sent), lists:reverse(Decoded)};
 send_frames(A, B, Camera, Sent, Decoded, Deadline) ->
     receive
         {webrtc_capture, Camera, #{data := Data, timestamp := Ts, keyframe := Key}} ->
             ok = webrtc:send_frame(A, <<"0">>, Data, #{timestamp => Ts, keyframe => Key}),
-            send_frames(A, B, Camera, Sent + 1, Decoded, Deadline);
+            send_frames(A, B, Camera, [Ts | Sent], Decoded, Deadline);
         {webrtc, B, {decoded, _, _} = Event} ->
             send_frames(A, B, Camera, Sent, [Event | Decoded], Deadline);
         {webrtc, _, _} ->
             send_frames(A, B, Camera, Sent, Decoded, Deadline)
     after max(0, Deadline - erlang:monotonic_time(millisecond)) ->
-        {Sent, lists:reverse(Decoded)}
+        {lists:reverse(Sent), lists:reverse(Decoded)}
     end.
 
 %% One codec of a list, with its retransmission format (RFC 4588).
