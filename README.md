@@ -24,6 +24,15 @@ file, and shows, plays or records what is decoded, through the `ffmpeg` and
 `ffplay` executables. FFmpeg can also encode what it captures, hardware
 encoders included.
 
+## Where to start
+
+- **You want to see it work:** [the demo](docs/demo.md) puts your camera and
+  microphone in a browser.
+- **You want to use a codec:** [set up your system](docs/install.md), read
+  [Raw media](docs/raw-media.md), then the guide of the codec.
+- **You want to understand or change it:** [How it works](docs/architecture.md),
+  then the [module map](docs/module-map.md) and [CONTRIBUTING](CONTRIBUTING.md).
+
 ## Status
 
 Experimental. What that means today:
@@ -120,6 +129,9 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [G.711](docs/g711.md)
 - [Capture from a camera or a microphone](docs/capture.md)
 - [Play, show or record decoded media](docs/playback.md)
+- [How it works](docs/architecture.md): what runs where, and the path of a frame
+- [Module map](docs/module-map.md): which file and which test for a behaviour
+- [Glossary](docs/glossary.md)
 - [Limits and what they do not cover](docs/limits.md)
 - [What the codec behaviour lacks](docs/behaviour-gaps.md), and issues met in erlang_webrtc
 - [Contributing](CONTRIBUTING.md)

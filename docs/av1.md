@@ -7,13 +7,12 @@ each is optional.
 
 ## Build with dav1d and libaom
 
+[Set up on your system](install.md) has the packages to install for each
+system. Then:
+
 ```sh
-brew install dav1d aom cmake pkg-config        # macOS
-sudo apt-get install libdav1d-dev libaom-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
-
-[Set up on your system](install.md) has the other systems.
 
 Check what this build can do:
 

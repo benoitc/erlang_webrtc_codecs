@@ -7,13 +7,12 @@ you build.
 
 ## Build with libopus
 
+[Set up on your system](install.md) has the packages to install for each
+system. Then:
+
 ```sh
-brew install opus cmake pkg-config        # macOS
-sudo apt-get install libopus-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
-
-[Set up on your system](install.md) has the other systems.
 
 Check that the codec is there:
 

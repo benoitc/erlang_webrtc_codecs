@@ -7,13 +7,12 @@ has to be there when you build.
 
 ## Build with libvpx
 
+[Set up on your system](install.md) has the packages to install for each
+system. Then:
+
 ```sh
-brew install libvpx cmake pkg-config        # macOS
-sudo apt-get install libvpx-dev cmake pkg-config   # Debian, Ubuntu
 rebar3 compile
 ```
-
-[Set up on your system](install.md) has the other systems.
 
 Check that the codecs are there:
 
