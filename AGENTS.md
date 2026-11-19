@@ -160,6 +160,10 @@ what it says, and its end. `webrtc_codecs_file.erl` reads and writes IVF
 and WAV in Erlang. Devices
 never go through a NIF.
 
+**Demo:** `examples/browser_media/` shows the camera and the microphone of
+the machine in a browser, see [docs/demo.md](docs/demo.md). It is not
+compiled with the application.
+
 **Test media:** `webrtc_codecs_pattern.erl` (a moving picture, a tone, PSNR
 and SNR).
 

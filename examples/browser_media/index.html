@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>webrtc_codecs: camera and sound from Erlang</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 2em; max-width: 46em; }
+  video { width: 100%; background: #111; border-radius: 6px; }
+  pre { background: #f3f3f3; padding: 0.8em; border-radius: 6px; white-space: pre-wrap; }
+  button { font: inherit; padding: 0.4em 1em; }
+</style>
+</head>
+<body>
+<h1>Camera and sound from Erlang</h1>
+<p>
+  <button id="start">Start</button>
+  <label><input type="checkbox" id="mic"> send this browser's microphone to Erlang</label>
+</p>
+<video id="video" autoplay playsinline muted></video>
+<p><label><input type="checkbox" id="sound" checked> play the sound</label></p>
+<pre id="log"></pre>
+<script type="module">
+const log = (line) => { document.getElementById('log').textContent += line + '\n'; console.log(line); };
+const video = document.getElementById('video');
+document.getElementById('sound').onchange = (e) => { video.muted = !e.target.checked; };
+
+document.getElementById('start').onclick = async () => {
+  document.getElementById('start').disabled = true;
+  const pc = new RTCPeerConnection();
+  window.pc = pc;
+  const stream = new MediaStream();
+  video.srcObject = stream;
+  pc.ontrack = (e) => {
+    log('receiving ' + e.track.kind);
+    stream.addTrack(e.track);
+    // Sound only plays after a click, which Start was.
+    video.muted = !document.getElementById('sound').checked;
+  };
+  pc.onconnectionstatechange = () => log('connection: ' + pc.connectionState);
+
+  // Erlang offers what it sends; this page answers.
+  const offer = await (await fetch('/offer')).text();
+  await pc.setRemoteDescription({ type: 'offer', sdp: offer });
+
+  if (document.getElementById('mic').checked) {
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audio = pc.getTransceivers().find((t) => t.receiver.track.kind === 'audio');
+    audio.direction = 'sendrecv';
+    await audio.sender.replaceTrack(mic.getAudioTracks()[0]);
+    log('sending the microphone');
+  }
+
+  // An answer with every candidate in it: one request, no trickling.
+  await pc.setLocalDescription(await pc.createAnswer());
+  if (pc.iceGatheringState !== 'complete') {
+    await new Promise((done) => {
+      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') done(); };
+    });
+  }
+  await fetch('/answer', { method: 'POST', body: pc.localDescription.sdp });
+
+  // What the browser decodes, once a second.
+  setInterval(async () => {
+    const stats = await pc.getStats();
+    const line = [];
+    stats.forEach((s) => {
+      if (s.type !== 'inbound-rtp') return;
+      if (s.kind === 'video') {
+        line.push(`video ${s.frameWidth || '?'}x${s.frameHeight || '?'}, ${s.framesDecoded || 0} frames decoded`);
+      } else {
+        line.push(`audio ${s.totalSamplesReceived || 0} samples`);
+      }
+    });
+    document.title = line.join(' | ');
+    window.lastStats = line.join(' | ');
+  }, 1000);
+};
+</script>
+</body>
+</html>

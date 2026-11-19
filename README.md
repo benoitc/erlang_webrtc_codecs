@@ -36,7 +36,8 @@ Experimental. What that means today:
   generated sources and files. On macOS, Linux (Debian, Alpine) and FreeBSD,
   on arm64, and in CI.
 - **Not tested:** a real camera, a real microphone, the window and the
-  speaker, which need a person. No browser other than Chromium, no phone, no
+  speaker, which need a person: [the demo](docs/demo.md) is how you try
+  them. No browser other than Chromium, no phone, no
   SIP gateway. Nothing on Windows, where the native codecs are not built.
 - **Native code runs inside your node.** The codec libraries are called
   through NIFs: a defect in one of them on hostile media can crash the node.
@@ -109,6 +110,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 ## Documentation
 
 - [Set up on your system](docs/install.md): what to install on each operating system
+- [Try it: your camera and microphone in a browser](docs/demo.md)
 - [Raw media](docs/raw-media.md): the pictures and audio you exchange with a plugin, bitrate and key frame requests
 - [VP8 and VP9](docs/vp8-vp9.md)
 - [H.264](docs/h264.md)
