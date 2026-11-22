@@ -27,6 +27,12 @@ Options:
 - `threads`: of the encoder, default from the picture size and the
   number of schedulers
 - `max_pixels`: largest picture the decoder accepts, default 3840 x 2160
+- `max_nal_size`: largest NAL unit the encoder writes, default 1100 with
+  `packetization-mode=0`, where a packet holds one unit, and none
+  otherwise
+
+`init/3` refuses a `profile-level-id` of a profile other than baseline,
+main, extended and high. The level is not enforced.
 """.
 -behaviour(webrtc_media_codec).
 -behaviour(webrtc_codecs_video).
@@ -52,6 +58,10 @@ Options:
 -define(NAL_SUBSET_SPS, 15).
 %% profile_idc of what OpenH264 decodes: baseline, main, extended, high.
 -define(PROFILES, [66, 77, 88, 100]).
+%% The payload erlang_webrtc puts in a packet, and the least OpenH264
+%% can keep a slice under.
+-define(MAX_NAL_SIZE, 1100).
+-define(MIN_NAL_SIZE, 500).
 
 -doc false.
 codecs() ->
@@ -74,14 +84,43 @@ implementation() ->
     <<"OpenH264 ", (webrtc_codecs_openh264_nif:version())/binary>>.
 
 -doc false.
-init(video, #{name := Name}, Opts) when is_map(Opts) ->
+init(video, #{name := Name} = Codec, Opts) when is_map(Opts) ->
     case {string:lowercase(Name), webrtc_codecs_openh264_nif:loaded()} of
-        {<<"h264">>, true} -> webrtc_codecs_video:init(?MODULE, h264, Opts);
+        {<<"h264">>, true} -> negotiated(Codec, Opts);
         {<<"h264">>, false} -> {error, {not_built, openh264}};
         _ -> {error, {unsupported_codec, Name}}
     end;
 init(Kind, _Codec, Opts) ->
     {error, {badarg, {Kind, Opts}}}.
+
+%% RFC 6184 section 8.1. The profile has to be one OpenH264 decodes,
+%% which can then decode the constrained baseline the encoder makes. The
+%% level is not enforced. In mode 0 (the default) a packet holds one NAL
+%% unit, so the encoder keeps them under the size of a packet; in the
+%% other modes erlang_webrtc cuts a large unit itself.
+negotiated(Codec, Opts) ->
+    Id = webrtc_codecs_video:fmtp(<<"profile-level-id">>, Codec, <<"42000a">>),
+    Mode = webrtc_codecs_video:fmtp(<<"packetization-mode">>, Codec, <<"0">>),
+    Max = maps:get(max_nal_size, Opts, ?MAX_NAL_SIZE),
+    Valid = is_integer(Max) andalso Max >= ?MIN_NAL_SIZE andalso Max =< 65536,
+    case {profile(Id), Mode} of
+        {false, _} -> {error, {unsupported_profile, Id}};
+        {true, _} when not Valid -> {error, {badarg, Opts}};
+        {true, <<"0">>} -> webrtc_codecs_video:init(?MODULE, h264, Opts#{max_nal_size => Max});
+        {true, <<"1">>} -> webrtc_codecs_video:init(?MODULE, h264, Opts);
+        {true, <<"2">>} -> webrtc_codecs_video:init(?MODULE, h264, Opts);
+        {true, _} -> {error, {unsupported_packetization_mode, Mode}}
+    end.
+
+%% profile_idc, profile-iop and level_idc as six hexadecimal digits.
+profile(<<Profile:2/binary, _:4/binary>> = Id) ->
+    lists:all(fun is_hex/1, binary_to_list(Id)) andalso
+        lists:member(binary_to_integer(Profile, 16), ?PROFILES);
+profile(_) ->
+    false.
+
+is_hex(C) ->
+    (C >= $0 andalso C =< $9) orelse (C >= $a andalso C =< $f) orelse (C >= $A andalso C =< $F).
 
 -doc false.
 decode(Frame, St) -> webrtc_codecs_video:decode(Frame, St).

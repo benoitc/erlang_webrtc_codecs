@@ -27,6 +27,13 @@ Found while testing the plugins.
 - **No public way to put a codec first.** Fixed in 0.2.0 with
   `webrtc:default_codecs/1` and `webrtc:prefer_codec/2`, which the guides
   now use.
+- **H.264 `packetization-mode=0` is packetized like mode 1.** erlang_webrtc
+  0.2.0 groups small NAL units in one packet and cuts large ones whatever
+  mode was negotiated, where mode 0 allows one whole unit per packet only.
+  The H.264 plugin keeps every unit it writes under the size of a packet in
+  mode 0, so none is cut; the parameter sets of a key frame may still be
+  grouped. Its own offer is mode 1, so this shows only with a peer that
+  offers mode 0 alone.
 - **The VP9 file of the frame corpus is profile 1.**
   `test/corpora/frames/vp9.ivf` was encoded from RGB without `-pix_fmt
   yuv420p`, so it is 4:4:4, which the VP9 plugin does not decode. This

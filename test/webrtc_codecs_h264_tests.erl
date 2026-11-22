@@ -231,3 +231,97 @@ options_test() ->
         false ->
             ok
     end.
+
+%% RFC 6184 section 8.1: the profile of `profile-level-id` has to be one
+%% OpenH264 serves; the level is not enforced.
+profile_level_id_test() ->
+    case webrtc_codecs_openh264_nif:loaded() of
+        true ->
+            Init = fun(Fmtp) -> ?M:init(video, #{name => <<"H264">>, fmtp => Fmtp}, #{}) end,
+            [
+                ?assertMatch({ok, _}, Init([{<<"profile-level-id">>, Id}]))
+             || Id <- [<<"42e01f">>, <<"42001f">>, <<"4d001f">>, <<"640C1F">>, <<"58000a">>]
+            ],
+            ?assertMatch({ok, _}, Init([])),
+            ?assertMatch({ok, _}, Init(not_a_list)),
+            [
+                ?assertEqual(
+                    {error, {unsupported_profile, Id}}, Init([{<<"profile-level-id">>, Id}])
+                )
+             || Id <- [<<"f4001f">>, <<"42e0">>, <<"zzzzzz">>, <<"42e01f00">>]
+            ],
+            ?assertEqual(
+                {error, {unsupported_packetization_mode, <<"3">>}},
+                Init([{<<"packetization-mode">>, <<"3">>}])
+            );
+        false ->
+            ok
+    end.
+
+packetization_mode_test_() ->
+    case webrtc_codecs_openh264_nif:loaded() of
+        true ->
+            [
+                {timeout, 60, {"mode 0 keeps NAL units small", fun mode_0/0}},
+                {timeout, 60, {"mode 1 has one slice", fun mode_1/0}},
+                {"max_nal_size", fun max_nal_size/0}
+            ];
+        false ->
+            []
+    end.
+
+%% Pictures that cost far more than a packet, as access units.
+encode_mode(Fmtp, Opts) ->
+    {ok, St} = ?M:init(video, #{name => <<"H264">>, fmtp => Fmtp}, Opts#{bitrate => 4000000}),
+    {Frames, _} = lists:mapfoldl(
+        fun(N, StA) ->
+            {ok, [Frame], _, StB} = ?M:encode(?C:noise(1280, 720, N), StA),
+            {Frame, StB}
+        end,
+        St,
+        lists:seq(0, 4)
+    ),
+    Frames.
+
+%% In mode 0 a packet holds one NAL unit, so none is over the size of a
+%% packet, and the pictures still decode.
+mode_0() ->
+    [
+        begin
+            Frames = encode_mode(Fmtp, Opts),
+            Sizes = [byte_size(U) || #{data := D} <- Frames, {_, U} <- ?M:nal_units(D)],
+            ?assert(length(Sizes) > 5 * 3),
+            ?assert(lists:max(Sizes) =< Max),
+            {Pictures, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(), #{})),
+            ?assertMatch(#{framesDecoded := 5, keyFramesDecoded := 1}, Stats),
+            ?assert(lists:all(fun(#{width := 1280, height := 720}) -> true end, Pictures))
+        end
+     || {Fmtp, Opts, Max} <- [
+            {[], #{}, 1100},
+            {[{<<"packetization-mode">>, <<"0">>}], #{}, 1100},
+            {[{<<"packetization-mode">>, <<"0">>}], #{max_nal_size => 700}, 700},
+            {[{<<"packetization-mode">>, <<"1">>}], #{max_nal_size => 900}, 900}
+        ]
+    ].
+
+%% In modes 1 and 2 erlang_webrtc cuts large units itself.
+mode_1() ->
+    [
+        begin
+            Frames = encode_mode([{<<"packetization-mode">>, Mode}], #{}),
+            Slices = [
+                length([T || {T, _} <- ?M:nal_units(D), T =:= 1 orelse T =:= 5])
+             || #{data := D} <- Frames
+            ],
+            ?assertEqual([1, 1, 1, 1, 1], Slices)
+        end
+     || Mode <- [<<"1">>, <<"2">>]
+    ].
+
+max_nal_size() ->
+    H264 = #{name => <<"H264">>},
+    ?assertMatch({ok, _}, ?M:init(video, H264, #{max_nal_size => 500})),
+    [
+        ?assertMatch({error, {badarg, _}}, ?M:init(video, H264, #{max_nal_size => Bad}))
+     || Bad <- [0, 499, 65537, big]
+    ].

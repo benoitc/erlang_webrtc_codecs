@@ -73,23 +73,17 @@ codecs() ->
 init(video, #{name := Name} = Codec, Opts) when is_map(Opts) ->
     case {string:lowercase(Name), codecs()} of
         {<<"av1">>, []} -> {error, {not_built, av1}};
-        {<<"av1">>, _} -> profile(maps:get(fmtp, Codec, []), Opts);
+        {<<"av1">>, _} -> profile(Codec, Opts);
         _ -> {error, {unsupported_codec, Name}}
     end;
 init(Kind, _Codec, Opts) ->
     {error, {badarg, {Kind, Opts}}}.
 
 %% AV1 RTP payload format section 7.2.1: profile defaults to 0 (Main).
-profile(Fmtp, Opts) ->
-    Pairs =
-        case is_list(Fmtp) of
-            true -> [P || {_, _} = P <- Fmtp];
-            false -> []
-        end,
-    case lists:keyfind(<<"profile">>, 1, Pairs) of
-        false -> webrtc_codecs_video:init(?MODULE, av1, Opts);
-        {_, <<"0">>} -> webrtc_codecs_video:init(?MODULE, av1, Opts);
-        {_, Profile} -> {error, {unsupported_profile, Profile}}
+profile(Codec, Opts) ->
+    case webrtc_codecs_video:fmtp(<<"profile">>, Codec, <<"0">>) of
+        <<"0">> -> webrtc_codecs_video:init(?MODULE, av1, Opts);
+        Profile -> {error, {unsupported_profile, Profile}}
     end.
 
 -doc false.

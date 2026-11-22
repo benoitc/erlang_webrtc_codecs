@@ -9,6 +9,7 @@
 %% encode/2 and info/1 here.
 
 -export([init/3, decode/2, encode/2, info/1]).
+-export([fmtp/3]).
 
 -export_type([planes/0, frame_info/0, settings/0]).
 
@@ -22,7 +23,8 @@
     bitrate := pos_integer(),
     threads := pos_integer(),
     cpu_used => integer(),
-    keyframe_interval => pos_integer()
+    keyframe_interval => pos_integer(),
+    max_nal_size => pos_integer()
 }.
 
 -callback frame_info(Codec :: atom(), Frame :: binary()) -> frame_info().
@@ -90,6 +92,20 @@ init(Impl, Codec, Opts) ->
     end.
 
 positive(V) -> is_integer(V) andalso V > 0.
+
+%% A parameter of the negotiated fmtp, a list of {Name, Value} binaries;
+%% anything else in it is skipped.
+-spec fmtp(binary(), map(), Default) -> binary() | Default.
+fmtp(Key, Codec, Default) ->
+    case maps:get(fmtp, Codec, []) of
+        Fmtp when is_list(Fmtp) ->
+            case lists:keyfind(Key, 1, [P || {_, _} = P <- Fmtp]) of
+                {_, Value} -> Value;
+                false -> Default
+            end;
+        _ ->
+            Default
+    end.
 
 clamp(undefined, _St) ->
     undefined;
@@ -246,7 +262,7 @@ encoder(W, H, #st{impl = Impl, codec = Codec, opts = Opts} = St0) ->
             Given -> Given
         end,
     Settings = maps:merge(
-        maps:with([keyframe_interval, cpu_used], Opts),
+        maps:with([keyframe_interval, cpu_used, max_nal_size], Opts),
         #{bitrate => Bitrate, threads => threads(W * H, St0)}
     ),
     case Impl:encoder_new(Codec, W, H, Settings) of

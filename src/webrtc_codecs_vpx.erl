@@ -72,23 +72,17 @@ init(video, #{name := Name} = Codec, Opts) when is_map(Opts) ->
     case {string:lowercase(Name), webrtc_codecs_vpx_nif:loaded()} of
         {_, false} -> {error, {not_built, vpx}};
         {<<"vp8">>, true} -> webrtc_codecs_video:init(?MODULE, vp8, Opts);
-        {<<"vp9">>, true} -> vp9_profile(maps:get(fmtp, Codec, []), Opts);
+        {<<"vp9">>, true} -> vp9_profile(Codec, Opts);
         _ -> {error, {unsupported_codec, Name}}
     end;
 init(Kind, _Codec, Opts) ->
     {error, {badarg, {Kind, Opts}}}.
 
 %% RFC 9628 section 6: profile-id defaults to 0.
-vp9_profile(Fmtp, Opts) ->
-    Pairs =
-        case is_list(Fmtp) of
-            true -> [P || {_, _} = P <- Fmtp];
-            false -> []
-        end,
-    case lists:keyfind(<<"profile-id">>, 1, Pairs) of
-        false -> webrtc_codecs_video:init(?MODULE, vp9, Opts);
-        {_, <<"0">>} -> webrtc_codecs_video:init(?MODULE, vp9, Opts);
-        {_, Profile} -> {error, {unsupported_profile, Profile}}
+vp9_profile(Codec, Opts) ->
+    case webrtc_codecs_video:fmtp(<<"profile-id">>, Codec, <<"0">>) of
+        <<"0">> -> webrtc_codecs_video:init(?MODULE, vp9, Opts);
+        Profile -> {error, {unsupported_profile, Profile}}
     end.
 
 -doc false.

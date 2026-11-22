@@ -5,7 +5,7 @@
 -module(webrtc_codecs_video_checks).
 -include_lib("eunit/include/eunit.hrl").
 
--export([all/1, init/2, encode/5, is_key/1, decodes_like_ffmpeg/2]).
+-export([all/1, init/2, encode/5, is_key/1, noise/3, decodes_like_ffmpeg/2]).
 
 -define(P, webrtc_codecs_pattern).
 -define(T, webrtc_codecs_test_media).

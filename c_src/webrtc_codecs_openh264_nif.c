@@ -168,11 +168,13 @@ static ERL_NIF_TERM decode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return wc_ok(env, list);
 }
 
-/* encoder_new(Width, Height, #{bitrate, threads, keyframe_interval}) */
+/* encoder_new(Width, Height, #{bitrate, threads, keyframe_interval, max_nal_size})
+ * With max_nal_size a picture is cut in slices no NAL unit of which is
+ * larger; without it a picture is one slice. */
 static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     int w, h;
-    int bitrate = 300000, threads = 1, interval = 3000;
+    int bitrate = 300000, threads = 1, interval = 3000, max_nal = 0;
     int quiet = WELS_LOG_QUIET, format = videoFormatI420;
     SEncParamExt param;
     encoder_t *e;
@@ -182,8 +184,9 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         w > MAX_DIMENSION || h > MAX_DIMENSION || !enif_is_map(env, argv[2]))
         return enif_make_badarg(env);
     if (!wc_map_int(env, argv[2], "bitrate", &bitrate) || !wc_map_int(env, argv[2], "threads", &threads) ||
-        !wc_map_int(env, argv[2], "keyframe_interval", &interval) || bitrate < 1000 || threads < 1 ||
-        threads > 64 || interval < 1)
+        !wc_map_int(env, argv[2], "keyframe_interval", &interval) ||
+        !wc_map_int(env, argv[2], "max_nal_size", &max_nal) || bitrate < 1000 || threads < 1 || threads > 64 ||
+        interval < 1 || (max_nal != 0 && (max_nal < 500 || max_nal > 65536)))
         return enif_make_badarg(env);
 
     e = wc_resource(encoder_type, sizeof(*e));
@@ -223,14 +226,19 @@ static ERL_NIF_TERM encoder_new(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     param.bEnableDenoise = false;
     param.iEntropyCodingModeFlag = 0;
     param.eSpsPpsIdStrategy = CONSTANT_ID;
-    param.uiMaxNalSize = 0;
+    param.uiMaxNalSize = (unsigned int)max_nal;
     param.sSpatialLayers[0].iVideoWidth = w;
     param.sSpatialLayers[0].iVideoHeight = h;
     param.sSpatialLayers[0].fFrameRate = 30.0f;
     param.sSpatialLayers[0].iSpatialBitrate = bitrate;
     param.sSpatialLayers[0].iMaxSpatialBitrate = UNSPECIFIED_BIT_RATE;
     param.sSpatialLayers[0].uiProfileIdc = PRO_BASELINE;
-    param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
+    if (max_nal) {
+        param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_SIZELIMITED_SLICE;
+        param.sSpatialLayers[0].sSliceArgument.uiSliceSizeConstraint = (unsigned int)max_nal;
+    } else {
+        param.sSpatialLayers[0].sSliceArgument.uiSliceMode = SM_SINGLE_SLICE;
+    }
     if ((*e->enc)->InitializeExt(e->enc, &param) != 0) {
         WelsDestroySVCEncoder(e->enc);
         e->enc = NULL;
