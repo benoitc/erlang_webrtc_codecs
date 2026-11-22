@@ -60,7 +60,7 @@ devices({win32, _}, Ffmpeg, _Opts) ->
 when
     Source :: term().
 resolve({microphone, Device}, {unix, Os}, Ffmpeg, Opts) when
-    Os =/= darwin, is_integer(Device) andalso Device >= 0 orelse is_binary(Device)
+    Os =/= darwin andalso (is_integer(Device) andalso Device >= 0 orelse is_binary(Device))
 ->
     maybe
         ok ?= valid(Opts),
