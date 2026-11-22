@@ -194,15 +194,30 @@ static ERL_NIF_TERM conceal(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return run_decoder(env, d, NULL, 0, frame, 0);
 }
 
+/* The widest band a peer that plays at that rate can use. */
+static int max_bandwidth(int playback_rate)
+{
+    if (playback_rate <= 8000)
+        return OPUS_BANDWIDTH_NARROWBAND;
+    if (playback_rate <= 12000)
+        return OPUS_BANDWIDTH_MEDIUMBAND;
+    if (playback_rate <= 16000)
+        return OPUS_BANDWIDTH_WIDEBAND;
+    if (playback_rate <= 24000)
+        return OPUS_BANDWIDTH_SUPERWIDEBAND;
+    return OPUS_BANDWIDTH_FULLBAND;
+}
+
 /* Apply the settings present in the map. Returns an Opus error code. */
 static int encoder_apply(ErlNifEnv *env, encoder_t *e, ERL_NIF_TERM opts, int *badarg)
 {
-    int bitrate = 0, complexity = -1, fec = -1, dtx = -1, loss = -1;
+    int bitrate = 0, complexity = -1, fec = -1, dtx = -1, loss = -1, playback = 0;
     int err = OPUS_OK;
 
     *badarg = !wc_map_int(env, opts, "bitrate", &bitrate) || !wc_map_int(env, opts, "complexity", &complexity) ||
               !wc_map_bool(env, opts, "fec", &fec) || !wc_map_bool(env, opts, "dtx", &dtx) ||
-              !wc_map_int(env, opts, "packet_loss", &loss);
+              !wc_map_int(env, opts, "packet_loss", &loss) ||
+              !wc_map_int(env, opts, "max_playback_rate", &playback);
     if (*badarg)
         return OPUS_BAD_ARG;
 
@@ -216,6 +231,8 @@ static int encoder_apply(ErlNifEnv *env, encoder_t *e, ERL_NIF_TERM opts, int *b
         err = opus_encoder_ctl(e->enc, OPUS_SET_DTX(dtx));
     if (err == OPUS_OK && loss >= 0)
         err = opus_encoder_ctl(e->enc, OPUS_SET_PACKET_LOSS_PERC(loss));
+    if (err == OPUS_OK && playback > 0)
+        err = opus_encoder_ctl(e->enc, OPUS_SET_MAX_BANDWIDTH(max_bandwidth(playback)));
     return err;
 }
 

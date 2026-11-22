@@ -13,6 +13,7 @@ opus_test_() ->
         true ->
             [
                 {"round_trip", fun round_trip/0},
+                {"maxplaybackrate caps the audio bandwidth", fun max_playback_rate/0},
                 {"timestamps", fun timestamps/0},
                 {"stereo", fun stereo/0},
                 {"follows_bitrate", fun follows_bitrate/0},
@@ -280,3 +281,34 @@ bad_options() ->
     ),
     %% fmtp that is not a list of pairs is ignored.
     ?assertMatch({ok, _}, ?M:init(audio, Codec#{fmtp => [<<"x">>, {<<"stereo">>, <<"y">>}]}, #{})).
+
+%% RFC 7587 section 7.1: the encoder sends no more bandwidth than the
+%% peer plays. The first five bits of a packet tell its bandwidth
+%% (RFC 6716 section 3.1).
+max_playback_rate() ->
+    Bandwidths = fun(Fmtp, Opts) ->
+        {Frames, _} = encode(25, init(Fmtp, Opts#{bitrate => 64000, application => audio})),
+        lists:usort([bandwidth(Config) || #{data := <<Config:5, _/bits>>} <- Frames])
+    end,
+    ?assertEqual([full], Bandwidths([], #{})),
+    ?assertEqual([narrow], Bandwidths([{<<"maxplaybackrate">>, <<"8000">>}], #{})),
+    ?assertEqual([wide], Bandwidths([{<<"maxplaybackrate">>, <<"16000">>}], #{})),
+    %% Below what Opus has, the narrowest; over it, no limit.
+    ?assertEqual([narrow], Bandwidths([{<<"maxplaybackrate">>, <<"4000">>}], #{})),
+    ?assertEqual([full], Bandwidths([{<<"maxplaybackrate">>, <<"96000">>}], #{})),
+    %% The option replaces what was negotiated.
+    ?assertEqual(
+        [full], Bandwidths([{<<"maxplaybackrate">>, <<"8000">>}], #{max_playback_rate => 48000})
+    ),
+    ?assertEqual([narrow], Bandwidths([], #{max_playback_rate => 8000})),
+    Codec = #{name => <<"opus">>},
+    [
+        ?assertMatch({error, {badarg, _}}, ?M:init(audio, Codec, #{max_playback_rate => Bad}))
+     || Bad <- [7999, 48001, fast]
+    ].
+
+bandwidth(Config) when Config < 4; Config >= 16, Config < 20 -> narrow;
+bandwidth(Config) when Config < 8 -> medium;
+bandwidth(Config) when Config < 12; Config >= 20, Config < 24 -> wide;
+bandwidth(Config) when Config < 14; Config >= 24, Config < 28 -> superwide;
+bandwidth(_Config) -> full.

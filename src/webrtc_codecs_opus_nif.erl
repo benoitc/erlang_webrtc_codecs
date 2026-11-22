@@ -28,7 +28,8 @@
     complexity => 0..10,
     fec => boolean(),
     dtx => boolean(),
-    packet_loss => 0..100
+    packet_loss => 0..100,
+    max_playback_rate => 8000..48000
 }.
 
 init() ->

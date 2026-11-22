@@ -24,6 +24,8 @@ Options, each defaulting to what the negotiated `fmtp` says:
 - `fec`: in-band FEC, default `useinbandfec`
 - `dtx`: send nothing during silence, default `usedtx`
 - `packet_loss`: percent expected at start, default 0
+- `max_playback_rate`: highest rate the peer plays, which caps the audio
+  bandwidth sent, default `maxplaybackrate`, else 48000
 - `application`: `voip` (default), `audio` or `lowdelay`
 - `complexity`: 0 to 10, default chosen by libopus
 """.
@@ -92,12 +94,16 @@ init(Fmtp, Opts) ->
     Max = min(
         ?MAX_BITRATE, max(?MIN_BITRATE, fmtp_int(<<"maxaveragebitrate">>, Fmtp, ?MAX_BITRATE))
     ),
+    %% RFC 7587 section 7.1: what the peer plays, 48000 when it says
+    %% nothing.
+    Playback = max(8000, min(48000, fmtp_int(<<"maxplaybackrate">>, Fmtp, 48000))),
     Settings0 = maps:merge(
         #{
             fec => fmtp_int(<<"useinbandfec">>, Fmtp, 0) =:= 1,
-            dtx => fmtp_int(<<"usedtx">>, Fmtp, 0) =:= 1
+            dtx => fmtp_int(<<"usedtx">>, Fmtp, 0) =:= 1,
+            max_playback_rate => Playback
         },
-        maps:with([bitrate, fec, dtx, packet_loss, complexity], Opts)
+        maps:with([bitrate, fec, dtx, packet_loss, complexity, max_playback_rate], Opts)
     ),
     Settings = clamp(Settings0, Max),
     Valid =
@@ -124,6 +130,7 @@ valid(Settings) ->
 valid(bitrate, V) -> is_integer(V) andalso V > 0;
 valid(complexity, V) -> is_integer(V) andalso V >= 0 andalso V =< 10;
 valid(packet_loss, V) -> is_integer(V) andalso V >= 0 andalso V =< 100;
+valid(max_playback_rate, V) -> is_integer(V) andalso V >= 8000 andalso V =< 48000;
 valid(_, V) -> is_boolean(V).
 
 clamp(#{bitrate := B} = Settings, Max) when is_integer(B) ->

@@ -86,6 +86,7 @@ Each defaults to what the negotiated `fmtp` says.
 | `fec` | `useinbandfec` | Add redundancy for the previous frame |
 | `dtx` | `usedtx` | Send nothing during silence |
 | `packet_loss` | `0` | Loss expected at start, in percent |
+| `max_playback_rate` | `maxplaybackrate`, else `48000` | Highest rate the peer plays, 8000 to 48000: the encoder sends no audio bandwidth above it |
 | `application` | `voip` | `voip`, `audio` (music) or `lowdelay` |
 | `complexity` | chosen by libopus | 0 (fastest) to 10 (best) |
 
