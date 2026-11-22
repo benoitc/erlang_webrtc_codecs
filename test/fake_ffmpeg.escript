@@ -13,12 +13,43 @@
 %%   ignore_eof     read to the end of input, then stay, ignoring SIGTERM
 %%
 %% `-pidfile Path` writes its process id there.
+%%
+%% Asked for `-devices` it lists the input devices named in the
+%% environment variable FAKE_FFMPEG_DEVICES (separated by commas), and
+%% for `-sources Backend` the sources FAKE_FFMPEG_SOURCES tells: `two`,
+%% `none`, or `forever` for a listing that does not end.
 main(Args) ->
     case value("-pidfile", Args) of
         undefined -> ok;
         File -> ok = file:write_file(File, os:getpid())
     end,
-    run(value("-mode", Args), Args).
+    case {lists:member("-devices", Args), value("-sources", Args)} of
+        {true, _} -> devices();
+        {false, undefined} -> run(value("-mode", Args), Args);
+        {false, Backend} -> sources(Backend, os:getenv("FAKE_FFMPEG_SOURCES", "two"))
+    end.
+
+devices() ->
+    io:put_chars("Devices:\n D. = Demuxing supported\n .E = Muxing supported\n ---\n"),
+    io:put_chars(" D  lavfi           Libavfilter virtual input device\n"),
+    io:put_chars("  E sdl,sdl2        SDL2 output device\n"),
+    [
+        io:put_chars([" DE ", string:pad(Name, 15), " an audio device\n"])
+     || Name <- string:tokens(os:getenv("FAKE_FFMPEG_DEVICES", ""), ",")
+    ],
+    halt(0).
+
+sources(Backend, "two") ->
+    io:put_chars(["Auto-detected sources for ", Backend, ":\n"]),
+    io:put_chars("  out.monitor [Monitor of Built-in Audio]\n"),
+    io:put_chars("* in.analog-stereo [Built-in Audio [Analog] Stereo] (audio)\n"),
+    halt(0);
+sources(Backend, "none") ->
+    io:put_chars(["Cannot list sources: ", Backend, "\n"]),
+    halt(1);
+sources(Backend, "forever") ->
+    io:put_chars("  again [and again]\n"),
+    sources(Backend, "forever").
 
 value(Name, [Name, Value | _]) -> Value;
 value(Name, [_ | Rest]) -> value(Name, Rest);

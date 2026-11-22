@@ -27,6 +27,8 @@ capture_test_() ->
                     {"stops with its owner", fun stops_with_owner/0},
                     {"bad options", fun bad_options/0},
                     {"devices", fun devices/0},
+                    {"microphones of a backend", fun microphones/0},
+                    {"a microphone by its index", fun microphone_index/0},
                     {"encoded VP8", fun() -> encoded(vp8, "libvpx") end},
                     {"encoded VP9", fun() -> encoded(vp9, "libvpx-vp9") end},
                     {"encoded AV1", fun() -> encoded(av1, "libsvtav1") end},
@@ -192,6 +194,91 @@ devices() ->
         ?assertMatch(#{index := I, name := <<_/binary>>} when is_integer(I), D)
      || D <- Video ++ Audio
     ].
+
+%% On Linux and the BSDs the microphones are the sources of the first
+%% audio input FFmpeg has, the default source first; with no listing
+%% there is the default source alone.
+microphones() ->
+    Fake = fake_path(),
+    List = fun(Opts) ->
+        {ok, #{audio := Audio}} = webrtc_codecs_capture_devices:list(Opts#{ffmpeg => Fake}),
+        Audio
+    end,
+    Two = [
+        #{
+            index => 0,
+            name => <<"in.analog-stereo">>,
+            description => <<"Built-in Audio [Analog] Stereo">>
+        },
+        #{index => 1, name => <<"out.monitor">>, description => <<"Monitor of Built-in Audio">>}
+    ],
+    Default = [#{index => 0, name => <<"default">>}],
+    case os:type() of
+        {unix, darwin} ->
+            %% The listing of macOS is another one.
+            ok;
+        _ ->
+            os:putenv("FAKE_FFMPEG_SOURCES", "two"),
+            ?assertEqual(Two, List(#{audio_backend => alsa})),
+            os:putenv("FAKE_FFMPEG_SOURCES", "none"),
+            ?assertEqual(Default, List(#{audio_backend => pulse})),
+            ?assertEqual(Default, List(#{audio_backend => sndio})),
+            ?assertMatch(
+                [#{index := 0, name := <<"/dev/dsp", _/binary>>} | _], List(#{audio_backend => oss})
+            )
+    end,
+    ?assertEqual(
+        {error, {badarg, #{audio_backend => jack}}},
+        webrtc_codecs_capture_devices:list(#{ffmpeg => Fake, audio_backend => jack})
+    ),
+    os:unsetenv("FAKE_FFMPEG_SOURCES").
+
+%% An index stands for a source of the listing, and the command names
+%% the backend FFmpeg has.
+microphone_index() ->
+    Fake = fake_path(),
+    Linux = {unix, linux},
+    Input = fun(Device, Opts) ->
+        maybe
+            {ok, Source, Resolved} ?=
+                webrtc_codecs_capture_devices:resolve({microphone, Device}, Linux, Fake, Opts),
+            {ok, audio, Args} ?= webrtc_codecs_capture_command:input(Source, Linux, Resolved),
+            Args
+        end
+    end,
+    os:putenv("FAKE_FFMPEG_SOURCES", "two"),
+    os:putenv("FAKE_FFMPEG_DEVICES", "alsa,oss"),
+    ?assertEqual(["-f", "alsa", "-i", "in.analog-stereo"], Input(0, #{})),
+    ?assertEqual(["-f", "alsa", "-i", "out.monitor"], Input(1, #{})),
+    ?assertEqual({error, {no_device, {microphone, 2}}}, Input(2, #{})),
+    ?assertEqual(["-f", "alsa", "-i", "hw:1"], Input(<<"hw:1">>, #{})),
+    os:putenv("FAKE_FFMPEG_DEVICES", "sndio,alsa,pulse"),
+    ?assertEqual(["-f", "pulse", "-i", "out.monitor"], Input(1, #{})),
+    ?assertEqual(["-f", "sndio", "-i", "default"], Input(0, #{audio_backend => sndio})),
+    %% An FFmpeg with none of them: PulseAudio is tried, as before.
+    os:putenv("FAKE_FFMPEG_DEVICES", ""),
+    ?assertEqual(["-f", "pulse", "-i", "in.analog-stereo"], Input(0, #{})),
+    os:putenv("FAKE_FFMPEG_SOURCES", "none"),
+    ?assertEqual(["-f", "pulse", "-i", "default"], Input(0, #{})),
+    ?assertEqual({error, {no_device, {microphone, 1}}}, Input(1, #{})),
+    ?assertEqual({error, {badarg, #{audio_backend => jack}}}, Input(0, #{audio_backend => jack})),
+    %% A listing that does not end is ended, and what was read is used.
+    os:putenv("FAKE_FFMPEG_SOURCES", "forever"),
+    ?assertEqual(["-f", "alsa", "-i", "again"], Input(0, #{audio_backend => alsa})),
+    %% macOS and the other sources are left as they are.
+    ?assertEqual(
+        {ok, {microphone, 1}, #{}},
+        webrtc_codecs_capture_devices:resolve({microphone, 1}, {unix, darwin}, Fake, #{})
+    ),
+    ?assertEqual(
+        {ok, {test, audio}, #{}},
+        webrtc_codecs_capture_devices:resolve({test, audio}, Linux, Fake, #{})
+    ),
+    os:unsetenv("FAKE_FFMPEG_SOURCES"),
+    os:unsetenv("FAKE_FFMPEG_DEVICES").
+
+fake_path() ->
+    filename:join([webrtc_codecs_test_media:root(), "test", "fake_ffmpeg.escript"]).
 
 %% The encoders this FFmpeg has.
 has_encoder(Name) ->

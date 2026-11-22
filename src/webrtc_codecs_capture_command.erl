@@ -31,7 +31,7 @@ input({camera, Device}, Os, Opts) when is_integer(Device), Device >= 0; is_binar
     Derived = ["-framerate", integer_to_list(Fps), "-video_size", picture_size(Opts)],
     device(video, Derived, device_input(Os, video, Device), Opts);
 input({microphone, Device}, Os, Opts) when is_integer(Device), Device >= 0; is_binary(Device) ->
-    device(audio, [], device_input(Os, audio, Device), Opts);
+    device(audio, [], microphone_input(Os, Device, Opts), Opts);
 input(Source, _Os, _Opts) ->
     {error, {badarg, Source}}.
 
@@ -49,21 +49,34 @@ device(Kind, Derived, {Format, Input}, Opts) ->
     {ok, Kind, ["-f", Format] ++ maps:get(input_options, Opts, Derived) ++ ["-i", Input]}.
 
 %% The FFmpeg input device of each system and how it names a device.
-%% On Linux a camera index is a /dev/video number and a microphone
-%% index means the default source.
+%% On Linux and the BSDs a camera index is a /dev/video number. The
+%% Windows clauses were never run: Windows is not supported.
 device_input({unix, darwin}, video, Device) ->
     {"avfoundation", device_name(Device) ++ ":none"};
-device_input({unix, darwin}, audio, Device) ->
-    {"avfoundation", "none:" ++ device_name(Device)};
 device_input({win32, _}, Kind, Device) ->
     {"dshow", atom_to_list(Kind) ++ "=" ++ device_name(Device)};
 device_input(_, video, Device) when is_integer(Device) ->
     {"v4l2", "/dev/video" ++ device_name(Device)};
 device_input(_, video, Device) ->
-    {"v4l2", device_name(Device)};
-device_input(_, audio, Device) when is_integer(Device) -> {"pulse", "default"};
-device_input(_, audio, Device) ->
-    {"pulse", device_name(Device)}.
+    {"v4l2", device_name(Device)}.
+
+%% On Linux and the BSDs the capture process has put the input device
+%% of FFmpeg in `audio_backend` and a name in place of an index
+%% (webrtc_codecs_capture_devices:resolve/4). An index left here means
+%% the default source.
+microphone_input({unix, darwin}, Device, _Opts) ->
+    {"avfoundation", "none:" ++ device_name(Device)};
+microphone_input({win32, _} = Os, Device, _Opts) ->
+    device_input(Os, audio, Device);
+microphone_input(_Os, Device, Opts) ->
+    Backend = maps:get(audio_backend, Opts, pulse),
+    Name =
+        case Device of
+            _ when is_binary(Device) -> device_name(Device);
+            _ when Backend =:= oss -> "/dev/dsp";
+            _ -> "default"
+        end,
+    {atom_to_list(Backend), Name}.
 
 device_name(Index) when is_integer(Index) -> integer_to_list(Index);
 device_name(Name) -> unicode:characters_to_list(Name).

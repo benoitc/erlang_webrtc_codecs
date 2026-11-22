@@ -34,7 +34,7 @@ end.
 """.
 -behaviour(gen_server).
 
--export([devices/0, start/2, stop/1, stats/1]).
+-export([devices/0, devices/1, start/2, stop/1, stats/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -export_type([source/0, options/0, encode/0, encoded_frame/0, device/0]).
@@ -65,6 +65,9 @@ picture, a 440 Hz tone).
 - `input_options`: FFmpeg options placed before the input, to replace the
   ones this module derives for a device
 - `ffmpeg`: path of the executable, default the one in `PATH`
+- `audio_backend`: the FFmpeg input device for a microphone on Linux and
+  the BSDs, `pulse`, `alsa`, `oss` or `sndio`, default the first of them
+  FFmpeg was built with
 """.
 -type options() :: #{
     owner => pid(),
@@ -78,7 +81,8 @@ picture, a 440 Hz tone).
     realtime => boolean(),
     encode => encode(),
     input_options => [string()],
-    ffmpeg => file:filename_all()
+    ffmpeg => file:filename_all(),
+    audio_backend => pulse | alsa | oss | sndio
 }.
 
 -doc """
@@ -109,7 +113,11 @@ picture, a 440 Hz tone).
     keyframe := boolean()
 }.
 
--type device() :: #{index := non_neg_integer(), name := binary()}.
+-doc """
+A camera or a microphone: `name` is what `start/2` takes, `description`
+what the system calls it when that differs.
+""".
+-type device() :: #{index := non_neg_integer(), name := binary(), description => binary()}.
 
 -record(st, {
     %% FFmpeg, until it has been ended.
@@ -140,7 +148,17 @@ Linux the user has to be in the `video` and `audio` groups.
 """.
 -spec devices() -> {ok, #{video := [device()], audio := [device()]}} | {error, term()}.
 devices() ->
-    webrtc_codecs_capture_devices:list().
+    devices(#{}).
+
+-doc """
+The same with options: `ffmpeg` and `audio_backend` of `t:options/0`. On
+Linux and the BSDs the microphones are the sources of one backend, the
+default source first.
+""".
+-spec devices(#{ffmpeg => file:filename_all(), audio_backend => pulse | alsa | oss | sndio}) ->
+    {ok, #{video := [device()], audio := [device()]}} | {error, term()}.
+devices(Opts) when is_map(Opts) ->
+    webrtc_codecs_capture_devices:list(Opts).
 
 -doc "Start capturing. The process is linked to the caller.".
 -spec start(source(), options()) -> {ok, pid()} | {error, term()}.
@@ -163,7 +181,9 @@ init({Source, Opts0}) ->
     maybe
         ok ?= valid(Opts),
         {ok, Ffmpeg} ?= ffmpeg(Opts),
-        {ok, Kind, Input} ?= webrtc_codecs_capture_command:input(Source, os:type(), Opts),
+        {ok, Device, Resolved} ?=
+            webrtc_codecs_capture_devices:resolve(Source, os:type(), Ffmpeg, Opts),
+        {ok, Kind, Input} ?= webrtc_codecs_capture_command:input(Device, os:type(), Resolved),
         {ok, Format, Codec, Output} ?=
             webrtc_codecs_capture_command:output(Kind, maps:get(encode, Opts, undefined), Opts),
         {ok, #{url := Url} = Listen} ?= webrtc_codecs_exec:listen(),

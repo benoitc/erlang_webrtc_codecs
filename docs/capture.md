@@ -13,6 +13,9 @@ FFmpeg has to be installed; nothing is linked into the VM.
 [#{index := 0, name := Name} | _] = Cameras.
 ```
 
+Give `start/2` the index or the name of an entry: `{camera, 0}`,
+`{microphone, Name}`.
+
 ## Capture and send
 
 ```erlang
@@ -127,6 +130,7 @@ ends, after sending `eof` or `{error, Reason}`.
 | `realtime` | `true` | Pace a file or a test source at its own rate |
 | `input_options` | derived | FFmpeg options before the input, replacing the derived ones |
 | `ffmpeg` | from `PATH` | Path of the executable |
+| `audio_backend` | the first FFmpeg has | FFmpeg input device for a microphone on Linux and FreeBSD: `pulse`, `alsa`, `oss` or `sndio` |
 
 ## Notes
 
@@ -160,9 +164,19 @@ ends, after sending `eof` or `{error, Reason}`.
   the reason FFmpeg gives comes in `{error, {ffmpeg, Status, Text}}`; pass
   the right ones in `input_options`, for example `["-framerate", "30",
   "-video_size", "1280x720"]`.
-- Devices are opened with avfoundation on macOS, v4l2 and pulse on Linux and
-  dshow on Windows. Only macOS listing and the generated sources are covered
-  by the tests; opening a real device is not, since it needs a person to
-  grant access.
+- Devices are opened with avfoundation on macOS and v4l2 for a camera on
+  Linux and FreeBSD.
+- On Linux and FreeBSD a microphone is a source of one FFmpeg input
+  device: the first of `pulse`, `alsa`, `oss` and `sndio` your FFmpeg was
+  built with (`ffmpeg -devices`), or `audio_backend`. `devices/0` lists the
+  sources of PulseAudio and ALSA with their description, the default one
+  at index 0. When FFmpeg lists none, for example without a sound server,
+  the one entry is the default source. `devices/1` takes `ffmpeg` and
+  `audio_backend`.
+- The tests cover the listing of macOS, the reading of FFmpeg's listings
+  and the generated sources. Opening a real device is not covered, since
+  it needs a person to grant access, and no real microphone was tried on
+  Linux or FreeBSD.
+- Windows is not supported. The code for it (dshow) has never been run.
 - For G.711 capture at 8000 Hz; for Opus at 48000 Hz or another rate Opus
   takes.
