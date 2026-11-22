@@ -106,10 +106,13 @@ start() {
     else
         set -- -machine "q35,accel=$ACCEL" -cpu host
     fi
+    # The sound card is there to try a microphone by hand: after
+    # `kldload snd_hda` in the machine it is /dev/dsp0 and gives silence.
     "qemu-system-$ARCH" "$@" -smp 4 -m 4096 \
         -drive "if=virtio,file=$DIR/disk.qcow2,format=qcow2" \
         -drive "if=virtio,file=$DIR/seed.iso,format=raw,readonly=on" \
         -device virtio-net-pci,netdev=n0 -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:22" \
+        -audiodev none,id=snd -device intel-hda -device hda-duplex,audiodev=snd \
         -display none -serial "file:$DIR/serial.log" -daemonize -pidfile "$DIR/qemu.pid"
     for _ in $(seq 1 60); do
         vm true </dev/null 2>/dev/null && return

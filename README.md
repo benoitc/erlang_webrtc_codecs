@@ -48,7 +48,8 @@ Experimental. What that means today:
   [the demo](docs/demo.md). No automated test covers real devices, the
   window or the speaker.
 - **Not tested:** no phone, no SIP gateway, and no browser in the automated
-  tests other than Chromium. No real microphone on Linux or FreeBSD.
+  tests other than Chromium. No physical microphone on Linux or FreeBSD,
+  only virtual ones, by hand.
 - **Not supported:** Windows. The native codecs are not built there and
   its capture and playback code has never been run.
 - **Native code runs inside your node.** The codec libraries are called

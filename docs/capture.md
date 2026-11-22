@@ -175,8 +175,11 @@ ends, after sending `eof` or `{error, Reason}`.
   `audio_backend`.
 - The tests cover the listing of macOS, the reading of FFmpeg's listings
   and the generated sources. Opening a real device is not covered, since
-  it needs a person to grant access, and no real microphone was tried on
-  Linux or FreeBSD.
+  it needs a person to grant access. On Linux and FreeBSD the microphones
+  were tried by hand with devices that are not hardware: sine sources of
+  PulseAudio, directly and through ALSA, on Debian in Docker, and the sound
+  card QEMU emulates, through OSS, on FreeBSD. No physical microphone was
+  tried there, and sndio was not tried at all.
 - Windows is not supported. The code for it (dshow) has never been run.
 - For G.711 capture at 8000 Hz; for Opus at 48000 Hz or another rate Opus
   takes.
