@@ -68,5 +68,5 @@ The picture size is read from the media before any library sees it:
   `webrtc_codecs_lifecycle_SUITE` logs the figures of your machine.
 - **Dirty schedulers are shared.** A codec call holds one for its duration,
   and calls on the same context wait for each other.
-- **Windows** has no native codecs, and its capture and playback paths have
-  never been run.
+- **Windows is not supported.** It has no native codecs, and its capture
+  and playback code has never been run.

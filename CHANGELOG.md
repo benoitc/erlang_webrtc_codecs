@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- H.264 follows what was negotiated. With `packetization-mode=0` the encoder
+  cuts each picture into pieces that fit one packet, as that mode requires;
+  the `max_nal_size` option sets their size.
+- On Linux and FreeBSD, `webrtc_codecs_capture:devices/0` lists the real
+  microphones, and `{microphone, Index}` opens the one you picked. PulseAudio,
+  ALSA, OSS and sndio are used, whichever your FFmpeg has, or the one you
+  name with `audio_backend`. `devices/1` takes options.
+- Opus sends no more audio bandwidth than the peer said it plays
+  (`maxplaybackrate`), or than the `max_playback_rate` option.
+
+### Changed
+
+- The H.264 plugin refuses to start when the peer negotiated a profile it
+  cannot serve, instead of sending video the peer may not decode.
+- On Linux and FreeBSD a microphone index used to mean the PulseAudio
+  default whatever its value. It now means the entry of `devices/0` with
+  that index; index 0 is still the default microphone.
+- Windows is stated as not supported. Its capture and playback code is
+  kept but has never been run.
+
 ## 0.1.1 (2026-11-19)
 
 ### Changed

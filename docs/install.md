@@ -114,10 +114,11 @@ Tested on FreeBSD 15.1 on arm64.
 
 ## Windows
 
-The native codecs are not built on Windows: there is no build hook for it.
-G.711 works, since it is written in Erlang. Capture and playback have
-Windows code paths (dshow, and FFmpeg run without a shell) that have never
-been run. Use WSL 2 with one of the Linux sections above for the rest.
+Windows is not supported. The native codecs are not built there: there is
+no build hook for it. Capture and playback have code for Windows (dshow,
+and FFmpeg run without a shell) that has never been run. G.711 is written
+in Erlang and has no reason to fail, but nothing was tested. Use WSL 2
+with one of the Linux sections above.
 
 ## Erlang/OTP 29
 

@@ -1,7 +1,8 @@
 %% The documentation against the repository, for what a test can tell:
 %% the module map names every source module and no module that is gone,
 %% every link between pages leads to a file, and every guide is in the
-%% documentation build. It does not read the prose.
+%% documentation build, and every call in a code block names a function
+%% that exists. It does not read the prose, nor check the arguments.
 -module(webrtc_codecs_docs_tests).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -69,6 +70,40 @@ links(Text) ->
         {match, Links} -> Links;
         nomatch -> []
     end.
+
+%% Every call to this package or to erlang_webrtc in an Erlang block of
+%% a page names an exported function, so a guide does not keep a call
+%% that was renamed or removed.
+calls_test() ->
+    Unknown = [
+        {Page, Call}
+     || Page <- pages(),
+        not lists:prefix("docs/reviews", Page),
+        Block <- erlang_blocks(read(Page)),
+        [M, F] = Call <- calls(Block),
+        not exported(list_to_atom(M), list_to_atom(F))
+    ],
+    ?assertEqual([], lists:usort(Unknown)).
+
+erlang_blocks(Text) ->
+    case re:run(Text, "```erlang\\n(.*?)```", [global, dotall, {capture, [1], binary}]) of
+        {match, Blocks} -> [B || [B] <- Blocks];
+        nomatch -> []
+    end.
+
+calls(Block) ->
+    case
+        re:run(Block, "\\b(webrtc[a-z0-9_]*):([a-z][A-Za-z0-9_]*)\\(", [
+            global, {capture, [1, 2], list}
+        ])
+    of
+        {match, Calls} -> Calls;
+        nomatch -> []
+    end.
+
+exported(Module, Function) ->
+    code:ensure_loaded(Module) =:= {module, Module} andalso
+        lists:keymember(Function, 1, Module:module_info(exports)).
 
 %% Every guide under docs is built into the documentation, and the build
 %% lists no page that is gone.

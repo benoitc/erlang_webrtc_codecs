@@ -38,8 +38,8 @@ encoders included.
 Experimental. What that means today:
 
 - **Early versions.** Expect breaking changes between versions until 1.0.
-- **Tested:** every codec against itself, against FFmpeg's decoders and the
-  frame corpus of erlang_webrtc, between two erlang_webrtc peers, and against
+- **Tested:** every codec against itself, against FFmpeg's decoders and a
+  copy of the frame corpus of erlang_webrtc, between two erlang_webrtc peers, and against
   headless Chromium in both directions. Capture and recording with FFmpeg's
   generated sources and files. On macOS, Linux (Debian, Alpine) and FreeBSD,
   on arm64, and in CI.
@@ -48,7 +48,9 @@ Experimental. What that means today:
   [the demo](docs/demo.md). No automated test covers real devices, the
   window or the speaker.
 - **Not tested:** no phone, no SIP gateway, and no browser in the automated
-  tests other than Chromium. Nothing on Windows, where the native codecs are not built.
+  tests other than Chromium. No real microphone on Linux or FreeBSD.
+- **Not supported:** Windows. The native codecs are not built there and
+  its capture and playback code has never been run.
 - **Native code runs inside your node.** The codec libraries are called
   through NIFs: a defect in one of them on hostile media can crash the node.
   The package bounds what it hands them, and was run under sanitizers, but

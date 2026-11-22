@@ -87,7 +87,7 @@ injection.
 
 ## Platforms
 
-macOS, Linux and FreeBSD. A change to native code, to the build or to a
+macOS, Linux and FreeBSD; Windows is not supported. A change to native code, to the build or to a
 port program is run on all three before it is committed:
 `rebar3 eunit && rebar3 ct` here, `scripts/test-linux.sh` (Docker, Debian
 and with `WEBRTC_CODECS_LINUX=alpine` Alpine) and `scripts/test-freebsd.sh`
@@ -198,7 +198,8 @@ What `decode/2` gives and `encode/2` takes, see
 - `test/webrtc_codecs_nif_tests.erl`: every native constructor, with each
   of its allocations made to fail in turn in a fault injection build.
 - `test/webrtc_codecs_docs_tests.erl`: the module map against the source
-  tree, the links between pages, the pages of the documentation build.
+  tree, the links between pages, the pages of the documentation build, and
+  that the calls in the code blocks of the guides exist.
 - `test/webrtc_codecs_peer_SUITE.erl`: Common Test, the plugins and the
   captures inside two erlang_webrtc peer connections on loopback.
 - `test/webrtc_codecs_lifecycle_SUITE.erl`: native contexts shared between

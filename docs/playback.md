@@ -91,6 +91,7 @@ ok = webrtc_codecs_file:write_wav("out.wav", [Audio1, Audio2]),
 
 ## Notes
 
+- Windows is not supported: the code for it has never been run.
 - A sink takes one format. Media of another size or rate gets `{error,
   bad_format}`: start another sink when the size of the video changes.
 - A window or the speaker that is behind makes `play/2` return `dropped`;

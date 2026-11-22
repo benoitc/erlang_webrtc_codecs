@@ -189,7 +189,9 @@ misbehaves the way you are guarding against.
 
 `webrtc_codecs_docs_tests`, run by `rebar3 eunit`, fails when the module map
 misses a source file or names one that is gone, when a link between pages
-leads nowhere, or when a guide is not in the documentation build. Add your
+leads nowhere, when a guide is not in the documentation build, or when a
+code block calls a function of this package or of erlang_webrtc that does
+not exist. Add your
 module to [docs/module-map.md](docs/module-map.md) and your page to the
 `ex_doc` extras in `rebar.config`.
 
