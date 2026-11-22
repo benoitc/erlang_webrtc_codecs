@@ -111,3 +111,44 @@ jobs:
             ./rebar3 compile
             ./rebar3 eunit
             ./rebar3 ct
+
+  # musl, in the image the script builds.
+  alpine:
+    name: Alpine
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: 'nightly'
+
+      # The script gives the container the dependencies fetched here.
+      - name: Fetch dependencies
+        run: rebar3 get-deps
+
+      - name: Test on Alpine
+        run: WEBRTC_CODECS_LINUX=alpine scripts/test-linux.sh
+
+  # The NIFs built with ASan, UBSan and fault injection.
+  sanitizers:
+    name: Sanitizers
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Erlang
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          rebar3-version: 'nightly'
+
+      - name: Fetch dependencies
+        run: rebar3 get-deps
+
+      - name: Test with sanitizers
+        run: scripts/test-sanitizers.sh
