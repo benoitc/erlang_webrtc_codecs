@@ -6,6 +6,52 @@ so that they can understand it, change it and check their change. It edits
 no source code. You decide which findings have to be fixed before 0.1.0 and
 which can wait; nothing is released until then.
 
+## Update before the release after 0.1.1, 2026-11-23
+
+`main` at `271abef`, 14 commits and 2691 added lines after `v0.1.1`.
+Nothing is released until you have said which of these must be fixed first.
+
+What changed since 0.1.1:
+
+- Requires erlang_webrtc 0.3.0 and uses every callback it gives a plugin:
+  `control/2`, `terminate/1`, key frame requests from the decoder,
+  `framesDropped`, the error that leaves the plugin on.
+- `webrtc_codecs_async` (285 lines, new, public) runs a plugin in a process
+  of its own.
+- H.264 follows `profile-level-id` and `packetization-mode`; Opus follows
+  `maxplaybackrate`; microphones are listed and picked on Linux and FreeBSD.
+- Each NIF has close functions; CI has Alpine and sanitizer jobs.
+- Question 6 is answered: Windows is stated as not supported.
+
+Findings for this release:
+
+| Finding | Kind | Suggestion |
+|---|---|---|
+| `docs/glossary.md` is behind in three rows: "transport process" and "codec plugin" say plugins run inside the transport process, which `webrtc_codecs_async` changes, and "resource" says the VM frees a codec when no process holds it, where `terminate/1` now closes it. It has no entry for "in flight", "key frame request" or "target bitrate". | documentation | Fix the three rows, add the three terms |
+| Nothing leads a user of a codec to `docs/async.md`: the codec guides do not link it, and `docs/raw-media.md` still ends on "encoding and decoding run in the transport process" with no way out. | navigation | One line in that note and in the notes of the video guides |
+| `docs/architecture.md` explains the synchronous path only. The asynchronous plugin is one row in a table; the prose still says each call "has to be short". A reader does not learn where the worker sits or what bounds it. | documentation | A short section "With webrtc_codecs_async", with where the frame goes and what is dropped |
+| `CONTRIBUTING.md`, "Add a codec", does not say a plugin has `control/2` and `terminate/1`, that a video plugin implements `decoder_close/1` and `encoder_close/1`, or which error form to return. There is no "If you want to..." entry for changing the asynchronous plugin. | documentation | Three lines in the first, one entry in the second |
+| The key frame request policy (first drop, then one in 30) is written twice, in `webrtc_codecs_video` and in `webrtc_codecs_async`, with the same constant. | code readability | After the release: one function, or a comment in each pointing at the other |
+| `webrtc_codecs_video` went from 291 to 381 lines (36 clauses): it now also holds the peer's bitrate limit, `control/2` and closing. Still one subject, what the video plugins share. | module organisation | Leave |
+| `webrtc_codecs_opus` is 385 lines; the part that applies the peer's limit to a bitrate libopus chose (`started/1`, `effective/1`) is the hardest to follow in the package. It is commented and tested. | code complexity | Leave; genuine |
+| The README still shows `{webrtc_codecs, "0.1.1"}` and its "Tested" paragraph does not mention the asynchronous plugin. | documentation | With the version bump |
+| The CHANGELOG "Unreleased" section has to become the release section; its "Changed" list is the breaking changes and should say so. | documentation | With the version bump |
+| `webrtc_codecs_docs_tests` checks that calls in code blocks exist, not their arguments. | documentation | Carried over; can wait |
+| Question 4 of section 13 (which exported helpers are public API) | design | Yours; can wait |
+
+Decided: version 0.2.0, with the first four findings fixed before it (the
+glossary, the links to the asynchronous guide, the architecture page, the
+contributing guide). They are done on this branch. The two README and
+CHANGELOG findings go with the version bump; the rest waits.
+
+Not established, and said so in the pages: a physical microphone on Linux
+or FreeBSD, sndio, a peer that offers only `packetization-mode=0`.
+
+Version: the minimum erlang_webrtc moved to 0.3.0, a microphone index
+changed meaning, the H.264 plugin can refuse to start, and `decode/2` and
+`encode/2` of the plugin modules have new return forms. That is more than
+a patch: 0.2.0.
+
 ## Update before the next release, 2026-11-19
 
 `main` at `b004dee`, nine commits after `v0.1.0`. Nothing is released until

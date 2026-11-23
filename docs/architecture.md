@@ -18,7 +18,8 @@ Everything about blocking, limits and crashes follows from where code runs.
 
 A plugin is called by erlang_webrtc inside the transport process, the one
 that handles every packet of the connection. So each call has to be short,
-and has to come back. The codec work itself is native code, which cannot be
+and has to come back; when a codec cannot be that short,
+`webrtc_codecs_async` moves it to a process of its own (see below). The codec work itself is native code, which cannot be
 interrupted: it runs on a dirty scheduler so that ordinary Erlang processes
 keep running meanwhile. Devices are different again: opening a camera can
 block for seconds or fail in ways no library reports cleanly, so that is
@@ -93,11 +94,42 @@ camera --> FFmpeg (own program) --socket--> capture process
   captures, and you give the frames to `webrtc:send_frame/4`. You then lose
   bitrate changes and key frames on request.
 
+## With `webrtc_codecs_async`
+
+The two paths above stay the same except for where the plugin runs.
+`webrtc_codecs_async` is a plugin that wraps another one:
+
+```
+transport process                         worker (one per stream)
+-----------------                         -----------------------
+decode/2, encode/2, control/2
+   room for one more? ----- message ----> the wrapped plugin, as above:
+   yes: return at once                    header reader, NIF, library
+   no:  drop or refuse                          |
+                                                |
+erlang_webrtc  <--- decoded/3, encoded/3 -------+
+```
+
+- **Its callbacks never wait.** They count what the worker has in flight in
+  a counter both processes see, hand over the frame or the raw media, and
+  return.
+- **The bound is `max_in_flight`.** Past it a picture to encode is refused,
+  and a video frame to decode is dropped with the frames after it, until a
+  key frame, which is asked for. Nothing queues without a bound.
+- **The worker owns the codecs.** They are created, used and closed there.
+  It ends with the stream and with the transport process, which it
+  monitors.
+- **What it cannot do:** return an encoder error to `webrtc:send_media/3`,
+  which has returned already. Such an error is logged.
+
+See [Run the codec outside the transport process](async.md) for how to use
+it.
+
 ## Who owns what
 
 | Thing | Owner | Ends when |
 |---|---|---|
-| A native decoder or encoder | The plugin state, held by the transport process | The stream ends or the connection closes (`terminate/1`); when the state is garbage collected otherwise |
+| A native decoder or encoder | The plugin state, held by the transport process, or by the worker of `webrtc_codecs_async` | The stream ends or the connection closes (`terminate/1`); when the state is garbage collected otherwise |
 | The FFmpeg of a capture | The capture process | The capture stops, or its owner dies |
 | The FFmpeg or ffplay of a sink | The sink process | `stop/1`, or the process that started it dies |
 

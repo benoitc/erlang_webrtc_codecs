@@ -129,6 +129,15 @@ wrong format, and a truncated or corrupt frame.
    behaviour and `codecs/0`, which lists the codecs the module can run in
    this build. A video codec also implements `webrtc_codecs_video` and
    delegates to it, and its tests run `webrtc_codecs_video_checks:all/1`.
+   Beyond `init/3`, `decode/2`, `encode/2` and `info/1`, a plugin exports
+   `control/2` (key frame requests and bitrates from erlang_webrtc) and
+   `terminate/1` (the stream ended: close the native codecs). A video
+   plugin gets both from `webrtc_codecs_video` and gives it
+   `decoder_close/1` and `encoder_close/1`.
+   Return `{error, Reason, State}` for what the application got wrong: it
+   loses one picture and leaves the plugin on. `{error, Reason}` turns the
+   plugin off, and is for a codec that cannot start. Bad media from the
+   peer is neither: it is a dropped output.
 2. Add the module to `?MODULES` in `src/webrtc_codecs.erl`. For a native
    codec, add the NIF to `c_src/CMakeLists.txt` with `add_codec_nif` and its
    library to `WEBRTC_CODECS_REQUIRE` in the CI workflow.
@@ -173,6 +182,14 @@ holds its real time settings. A new stream format is cut in
 `webrtc_codecs_capture_devices` lists them by reading what FFmpeg prints. Opening a real
 device needs a person, so say in the guide that it was tried by hand, and
 how.
+
+**Change what happens when the codec is behind, or the worker.** That is
+`webrtc_codecs_async`: the callbacks at the top decide what is handed over
+and what is dropped or refused, the worker loop below runs the wrapped
+plugin. A callback must never wait and never hand over past its limit.
+Test it with `test/webrtc_codecs_slow_plugin.erl`, which takes its time and
+fails on demand, and in `webrtc_codecs_peer_SUITE` for what erlang_webrtc
+does with the deliveries.
 
 **Change native code.** Read the first principle in
 [AGENTS.md](https://github.com/benoitc/erlang_webrtc_codecs/blob/main/AGENTS.md).
