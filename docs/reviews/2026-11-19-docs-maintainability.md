@@ -44,6 +44,8 @@ glossary, the links to the asynchronous guide, the architecture page, the
 contributing guide). They are done on this branch. The two README and
 CHANGELOG findings go with the version bump; the rest waits.
 
+Released as 0.2.0 on 2026-11-23, with those two done.
+
 Not established, and said so in the pages: a physical microphone on Linux
 or FreeBSD, sndio, a peer that offers only `packetization-mode=0`.
 
