@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-23)
 
 ### Added
 
@@ -30,6 +30,8 @@
   (`maxplaybackrate`), or than the `max_playback_rate` option.
 
 ### Changed
+
+These can require a change in your application.
 
 - Raw media in the wrong format no longer turns the plugin off.
   `webrtc:send_media/3` returns an error for that picture or audio, and the

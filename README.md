@@ -40,7 +40,8 @@ Experimental. What that means today:
 - **Early versions.** Expect breaking changes between versions until 1.0.
 - **Tested:** every codec against itself, against FFmpeg's decoders and a
   copy of the frame corpus of erlang_webrtc, between two erlang_webrtc peers, and against
-  headless Chromium in both directions. Capture and recording with FFmpeg's
+  headless Chromium in both directions, with the codec in the transport
+  process and, for VP8 and Opus, in a process of its own. Capture and recording with FFmpeg's
   generated sources and files. On macOS, Linux (Debian, Alpine) and FreeBSD,
   on arm64, and in CI.
 - **Tried by hand, once:** a real camera and microphone to a browser, and
@@ -87,7 +88,7 @@ rebar3 ct
 
 ```erlang
 {deps, [
-    {webrtc_codecs, "0.1.1"}
+    {webrtc_codecs, "0.2.0"}
 ]}.
 ```
 
