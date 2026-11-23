@@ -21,14 +21,36 @@ typedef struct {
 
 static ErlNifResourceType *encoder_type;
 
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void encoder_free(encoder_t *e)
+{
+    if (e->open)
+        aom_codec_destroy(&e->ctx);
+    e->open = 0;
+}
+
 static void encoder_dtor(ErlNifEnv *env, void *obj)
 {
     encoder_t *e = obj;
     (void)env;
-    if (e->open)
-        aom_codec_destroy(&e->ctx);
+    encoder_free(e);
     if (e->lock)
         enif_mutex_destroy(e->lock);
+}
+
+/* encoder_close(Encoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM encoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    encoder_t *e;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e))
+        return enif_make_badarg(env);
+    enif_mutex_lock(e->lock);
+    encoder_free(e);
+    enif_mutex_unlock(e->lock);
+    return wc_atom(env, "ok");
 }
 
 static const char *aom_reason(aom_codec_err_t err)
@@ -164,7 +186,8 @@ static ERL_NIF_TERM encoder_bitrate(ErlNifEnv *env, int argc, const ERL_NIF_TERM
     if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e) || !enif_get_int(env, argv[1], &bitrate) ||
         bitrate < 1000)
         return enif_make_badarg(env);
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->open))
+        return wc_error(env, "closed");
     e->cfg.rc_target_bitrate = (unsigned int)(bitrate / 1000);
     err = aom_codec_enc_config_set(&e->ctx, &e->cfg);
     enif_mutex_unlock(e->lock);
@@ -214,7 +237,8 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     img.stride[AOM_PLANE_V] = (int)cw;
 
     list = enif_make_list(env, 0);
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->open))
+        return wc_error(env, "closed");
     err = aom_codec_encode(&e->ctx, &img, (aom_codec_pts_t)pts, duration, force ? AOM_EFLAG_FORCE_KF : 0);
     if (err == AOM_CODEC_OK) {
         while ((pkt = aom_codec_get_cx_data(&e->ctx, &iter)) != NULL) {
@@ -261,6 +285,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 static ErlNifFunc nif_funcs[] = {
     WC_FAULT_NIF
     {"version", 0, version, 0},
+    {"encoder_close", 1, encoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_new", 3, encoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_bitrate", 2, encoder_bitrate, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encode", 7, encode, ERL_NIF_DIRTY_JOB_CPU_BOUND},

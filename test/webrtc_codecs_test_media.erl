@@ -2,7 +2,9 @@
 %% reference decoder.
 -module(webrtc_codecs_test_media).
 
--export([root/0, corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode_all/3, sum/2]).
+-export([
+    root/0, corpus/1, ivf/1, reference/3, ffmpeg_encode/2, frames/2, decode/3, decode_all/3, sum/2
+]).
 
 %% The path of a corpus file: the encoded video of test/corpus.
 corpus(File) ->
@@ -90,11 +92,19 @@ frames(Datas, IsKey) ->
      || {I, D} <- lists:enumerate(0, Datas)
     ].
 
+%% decode/2 without what it asks of the sender, which some tests do not
+%% look at.
+decode(Mod, Frame, St0) ->
+    case Mod:decode(Frame, St0) of
+        {ok, Outs, Stats, St, _Feedback} -> {ok, Outs, Stats, St};
+        Other -> Other
+    end.
+
 %% Run decode/2 over frames: the outputs, the statistics added up, the state.
 decode_all(Mod, Frames, St0) ->
     {Outs, {Stats, St}} = lists:mapfoldl(
         fun(Frame, {Acc, StA}) ->
-            {ok, Out, Stats, StB} = Mod:decode(Frame, StA),
+            {ok, Out, Stats, StB} = decode(Mod, Frame, StA),
             {Out, {sum(Acc, Stats), StB}}
         end,
         {#{}, St0},

@@ -31,24 +31,68 @@ typedef struct {
 static ErlNifResourceType *decoder_type;
 static ErlNifResourceType *encoder_type;
 
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void decoder_free(decoder_t *d)
+{
+    if (d->dec)
+        opus_decoder_destroy(d->dec);
+    d->dec = NULL;
+}
+
 static void decoder_dtor(ErlNifEnv *env, void *obj)
 {
     decoder_t *d = obj;
     (void)env;
-    if (d->dec)
-        opus_decoder_destroy(d->dec);
+    decoder_free(d);
     if (d->lock)
         enif_mutex_destroy(d->lock);
+}
+
+/* decoder_close(Decoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM decoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    decoder_t *d;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], decoder_type, (void **)&d))
+        return enif_make_badarg(env);
+    enif_mutex_lock(d->lock);
+    decoder_free(d);
+    enif_mutex_unlock(d->lock);
+    return wc_atom(env, "ok");
+}
+
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void encoder_free(encoder_t *e)
+{
+    if (e->enc)
+        opus_encoder_destroy(e->enc);
+    e->enc = NULL;
 }
 
 static void encoder_dtor(ErlNifEnv *env, void *obj)
 {
     encoder_t *e = obj;
     (void)env;
-    if (e->enc)
-        opus_encoder_destroy(e->enc);
+    encoder_free(e);
     if (e->lock)
         enif_mutex_destroy(e->lock);
+}
+
+/* encoder_close(Encoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM encoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    encoder_t *e;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e))
+        return enif_make_badarg(env);
+    enif_mutex_lock(e->lock);
+    encoder_free(e);
+    enif_mutex_unlock(e->lock);
+    return wc_atom(env, "ok");
 }
 
 static const char *opus_reason(int err)
@@ -125,7 +169,10 @@ static ERL_NIF_TERM run_decoder(ErlNifEnv *env, decoder_t *d, const unsigned cha
     if (!pcm)
         return wc_error(env, "alloc_fail");
 
-    enif_mutex_lock(d->lock);
+    if (!WC_ENTER(d, d->dec)) {
+        enif_free(pcm);
+        return wc_error(env, "closed");
+    }
     got = opus_decode(d->dec, data, (opus_int32)len, pcm, frame, fec);
     enif_mutex_unlock(d->lock);
 
@@ -284,7 +331,8 @@ static ERL_NIF_TERM encoder_set(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
 
     if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e) || !enif_is_map(env, argv[1]))
         return enif_make_badarg(env);
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->enc))
+        return wc_error(env, "closed");
     err = encoder_apply(env, e, argv[1], &badarg);
     enif_mutex_unlock(e->lock);
     if (badarg)
@@ -301,7 +349,8 @@ static ERL_NIF_TERM encoder_bitrate(ErlNifEnv *env, int argc, const ERL_NIF_TERM
 
     if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e))
         return enif_make_badarg(env);
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->enc))
+        return wc_error(env, "closed");
     err = opus_encoder_ctl(e->enc, OPUS_GET_BITRATE(&bitrate));
     enif_mutex_unlock(e->lock);
     return err == OPUS_OK ? wc_ok(env, enif_make_int(env, bitrate)) : wc_error(env, opus_reason(err));
@@ -336,7 +385,10 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     for (i = 0; i < count; i++)
         pcm[i] = (opus_int16)(in.data[2 * i] | (in.data[2 * i + 1] << 8));
 
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->enc)) {
+        enif_free(pcm);
+        return wc_error(env, "closed");
+    }
     len = opus_encode(e->enc, pcm, frame, packet, MAX_PACKET);
     enif_mutex_unlock(e->lock);
 
@@ -370,6 +422,8 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 static ErlNifFunc nif_funcs[] = {
     WC_FAULT_NIF
     {"version", 0, version, 0},
+    {"encoder_close", 1, encoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"decoder_close", 1, decoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decoder_new", 2, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode_fec", 3, decode_fec, ERL_NIF_DIRTY_JOB_CPU_BOUND},

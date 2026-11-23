@@ -32,7 +32,7 @@ Options, each defaulting to what the negotiated `fmtp` says:
 -behaviour(webrtc_media_codec).
 
 -export([codecs/0]).
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 
 %% RTP always counts Opus at 48 kHz (RFC 7587 section 4.1).
 -define(CLOCK, 48000).
@@ -55,6 +55,10 @@ Options, each defaulting to what the negotiated `fmtp` says:
     application :: voip | audio | lowdelay,
     settings :: webrtc_codecs_opus_nif:settings(),
     max_bitrate :: pos_integer(),
+    %% The most the peer allows (TMMBR), and the bitrate libopus chose
+    %% when none was set, to come back to when the peer lifts its limit.
+    peer_max = infinity :: infinity | non_neg_integer(),
+    auto :: undefined | pos_integer(),
     target :: undefined | integer(),
     %% RTP timestamp of the next encoded frame when the raw audio has none.
     next = 0 :: non_neg_integer()
@@ -248,7 +252,8 @@ encode(
 ) when
     is_binary(Pcm)
 ->
-    case encoder(Rate, Channels, control(Raw, St0)) of
+    %% An error leaves the plugin on: the audio is lost, the next is tried.
+    case encoder(Rate, Channels, raw_control(Raw, St0)) of
         {ok, #st{encoder = {Encoder, _, _}, next = Next} = St} ->
             case webrtc_codecs_opus_nif:encode(Encoder, Pcm) of
                 {ok, Packet} ->
@@ -256,23 +261,23 @@ encode(
                     Duration = byte_size(Pcm) div (2 * Channels) * ?CLOCK div Rate,
                     {ok, frames(Packet, Ts), stats(St), St#st{next = ts(Ts + Duration)}};
                 {error, bad_arg} ->
-                    {error,
-                        {bad_raw_audio, maps:without([samples], Raw#{bytes => byte_size(Pcm)})}};
+                    Bad = maps:without([samples], Raw#{bytes => byte_size(Pcm)}),
+                    {error, {bad_raw_audio, Bad}, St};
                 {error, Reason} ->
-                    {error, {opus, Reason}}
+                    {error, {opus, Reason}, St}
             end;
-        {error, _} = Error ->
-            Error
+        {error, Reason} ->
+            {error, Reason, St0}
     end;
 encode(#{} = Raw, St) when not is_map_key(samples, Raw) ->
-    case apply_settings(control(Raw, St)) of
+    case apply_settings(raw_control(Raw, St)) of
         {ok, St1} -> {ok, [], stats(St1), St1};
-        {error, _} = Error -> Error
+        {error, Reason} -> {error, Reason, St}
     end;
-encode(#{} = Raw, _St) ->
-    {error, {bad_raw_audio, maps:without([samples], Raw)}};
-encode(_Raw, _St) ->
-    {error, bad_raw_audio}.
+encode(#{} = Raw, St) ->
+    {error, {bad_raw_audio, maps:without([samples], Raw)}, St};
+encode(_Raw, St) ->
+    {error, bad_raw_audio, St}.
 
 %% With DTX, libopus gives a packet of at most two bytes for a frame
 %% that is not to be sent (RFC 7587 section 3.1.3).
@@ -282,8 +287,30 @@ frames(Packet, Ts) -> [#{data => Packet, timestamp => Ts, keyframe => true}].
 stats(#st{target = undefined}) -> #{};
 stats(#st{target = Target}) -> #{targetBitrate => Target}.
 
+%% What erlang_webrtc tells the encoder: the bitrate the application
+%% asks for and the most the peer allows. They reach libopus with the
+%% next audio. A key frame request means nothing to Opus.
+-doc false.
+control({target_bitrate, Bps}, #st{settings = Settings, max_bitrate = Max} = St) when
+    is_integer(Bps), Bps > 0
+->
+    {ok, St#st{settings = clamp(Settings#{bitrate => Bps}, Max), target = undefined}};
+control({max_bitrate, Limit}, St) when Limit =:= infinity; is_integer(Limit), Limit >= 0 ->
+    {ok, St#st{peer_max = Limit, target = undefined}};
+control(_Event, St) ->
+    {ok, St}.
+
+%% The stream ended: the codecs are destroyed now.
+-doc false.
+terminate(#st{decoder = Decoder, encoder = Encoder}) ->
+    _ = Decoder =:= undefined orelse webrtc_codecs_opus_nif:decoder_close(Decoder),
+    case Encoder of
+        undefined -> ok;
+        {Ref, _, _} -> webrtc_codecs_opus_nif:encoder_close(Ref)
+    end.
+
 %% Settings the raw map changes; they reach libopus in apply_settings/1.
-control(Raw, #st{settings = Settings, max_bitrate = Max} = St) ->
+raw_control(Raw, #st{settings = Settings, max_bitrate = Max} = St) ->
     Changes = maps:filter(fun valid/2, maps:with([bitrate, packet_loss], Raw)),
     case clamp(maps:merge(Settings, Changes), Max) of
         Settings -> St;
@@ -295,9 +322,12 @@ encoder(Rate, Channels, #st{encoder = {_, Rate, Channels}} = St) ->
 encoder(Rate, Channels, #st{application = Application, settings = Settings} = St) ->
     case lists:member(Rate, ?RATES) andalso (Channels =:= 1 orelse Channels =:= 2) of
         true ->
+            _ = terminate(St#st{decoder = undefined}),
             case webrtc_codecs_opus_nif:encoder_new(Rate, Channels, Application, Settings) of
-                {ok, Encoder} -> target(St#st{encoder = {Encoder, Rate, Channels}});
-                {error, Reason} -> {error, {opus, Reason}}
+                {ok, Encoder} ->
+                    started(St#st{encoder = {Encoder, Rate, Channels}, auto = undefined});
+                {error, Reason} ->
+                    {error, {opus, Reason}}
             end;
         false ->
             {error, {bad_raw_audio, #{sample_rate => Rate, channels => Channels}}}
@@ -308,11 +338,39 @@ apply_settings(#st{encoder = undefined} = St) ->
     {ok, St};
 apply_settings(#st{target = Target} = St) when Target =/= undefined ->
     {ok, St};
-apply_settings(#st{encoder = {Encoder, _, _}, settings = Settings} = St) ->
-    case webrtc_codecs_opus_nif:encoder_set(Encoder, Settings) of
+apply_settings(#st{encoder = {Encoder, _, _}} = St) ->
+    case webrtc_codecs_opus_nif:encoder_set(Encoder, effective(St)) of
         ok -> target(St);
         {error, Reason} -> {error, {opus, Reason}}
     end.
+
+%% A new encoder has the settings of the options. Its bitrate is learned
+%% first, so that a limit of the peer applies to the one libopus chose.
+started(#st{settings = Settings} = St0) ->
+    maybe
+        {ok, #st{target = Target} = St1} ?= target(St0),
+        St =
+            case Settings of
+                #{bitrate := _} -> St1;
+                _ -> St1#st{auto = Target}
+            end,
+        case St#st.peer_max of
+            infinity -> {ok, St};
+            _ -> apply_settings(St#st{target = undefined})
+        end
+    end.
+
+%% The settings within what the peer allows.
+effective(#st{settings = #{bitrate := _} = Settings, peer_max = infinity}) ->
+    Settings;
+effective(#st{settings = #{bitrate := Bitrate} = Settings, peer_max = Max}) ->
+    Settings#{bitrate := max(?MIN_BITRATE, min(Bitrate, Max))};
+effective(#st{settings = Settings, auto = undefined}) ->
+    Settings;
+effective(#st{settings = Settings, auto = Auto, peer_max = infinity}) ->
+    Settings#{bitrate => Auto};
+effective(#st{settings = Settings, auto = Auto, peer_max = Max}) ->
+    Settings#{bitrate => max(?MIN_BITRATE, min(Auto, Max))}.
 
 target(#st{encoder = {Encoder, _, _}} = St) ->
     case webrtc_codecs_opus_nif:encoder_bitrate(Encoder) of

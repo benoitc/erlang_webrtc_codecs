@@ -13,13 +13,27 @@
     av1/1,
     h264/1,
     h264_mode_0/1,
+    control/1,
     without_rtx/1,
     capture/1,
     capture_encoded/1
 ]).
 
 all() ->
-    [pcmu, pcma, opus, vp8, vp9, av1, h264, h264_mode_0, without_rtx, capture, capture_encoded].
+    [
+        pcmu,
+        pcma,
+        opus,
+        vp8,
+        vp9,
+        av1,
+        h264,
+        h264_mode_0,
+        control,
+        without_rtx,
+        capture,
+        capture_encoded
+    ].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -249,6 +263,52 @@ video(Name, Encoder, Decoder, Change, {W, H}) ->
                 format => w3c
             })
         ],
+    ok = webrtc:close(A),
+    ok = webrtc:close(B).
+
+%% What erlang_webrtc 0.3.0 tells the encoder without the application
+%% relaying it: the bitrate set with webrtc:set_target_bitrate/3, and
+%% the key frame the receiving peer asks for.
+control(_Config) ->
+    case webrtc_codecs_vpx_nif:loaded() of
+        true -> control();
+        false -> {skip, "built without libvpx"}
+    end.
+
+control() ->
+    Plugin = {webrtc_codecs, #{bitrate => 400000}},
+    Codecs = #{video => only(<<"VP8">>, webrtc:default_codecs(video))},
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{
+        loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
+    }),
+    {ok, _} = webrtc:add_transceiver(A, video, #{frames => true, codec_plugin => Plugin}),
+    ok = connect(A, B),
+    Send = fun(Ns) ->
+        [
+            begin
+                ok = webrtc:send_media(A, <<"0">>, webrtc_codecs_pattern:picture(320, 240, I)),
+                timer:sleep(33)
+            end
+         || I <- Ns
+        ]
+    end,
+    Outbound = fun() ->
+        [O] = [
+            O
+         || _ := #{type := <<"outbound-rtp">>, kind := <<"video">>} = O <- webrtc:get_stats(A, #{
+                format => w3c
+            })
+        ],
+        O
+    end,
+    Send(lists:seq(0, 9)),
+    #{targetBitrate := 400000, keyFramesEncoded := 1} = Outbound(),
+    ok = webrtc:set_target_bitrate(A, <<"0">>, 250000),
+    ok = webrtc:request_keyframe(B, <<"0">>),
+    timer:sleep(300),
+    Send(lists:seq(10, 19)),
+    #{targetBitrate := 250000, keyFramesEncoded := 2, framesEncoded := 20} = Outbound(),
     ok = webrtc:close(A),
     ok = webrtc:close(B).
 

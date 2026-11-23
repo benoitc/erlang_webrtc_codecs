@@ -34,8 +34,8 @@ it is the other way round.
 receive
     {webrtc, Pc, {decoded, Mid, #{format := i420, width := W, height := H} = Picture}} ->
         show(Picture);
-    {webrtc, Pc, {decoded, Mid, #{dropped := _Reason}}} ->
-        webrtc:request_keyframe(Pc, Mid)
+    {webrtc, Pc, {decoded, Mid, #{dropped := Reason}}} ->
+        logger:info("frame dropped: ~p", [Reason])
 end.
 ```
 
@@ -65,11 +65,13 @@ ok = webrtc:send_media(Pc, Mid, #{
 ```erlang
 receive
     {webrtc, Pc, {bandwidth_estimate, Bps}} ->
-        ok = webrtc:send_media(Pc, Mid, #{bitrate => Bps});
-    {webrtc, Pc, {keyframe_request, Mid}} ->
-        ok = webrtc:send_media(Pc, Mid, #{keyframe => true})
+        ok = webrtc:set_target_bitrate(Pc, Mid, Bps)
 end.
 ```
+
+The estimate is for the whole connection: give each encoder its share. A
+key frame the peer asks for and a limit the peer puts on the stream reach
+the encoder without you.
 
 ## Options
 

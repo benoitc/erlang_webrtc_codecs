@@ -29,9 +29,6 @@ loop(Pc, Mid, Camera) ->
             loop(Pc, Mid, Camera);
         {webrtc_capture, Camera, {error, Reason}} ->
             {error, Reason};
-        {webrtc, Pc, {keyframe_request, Mid}} ->
-            ok = webrtc:send_media(Pc, Mid, #{keyframe => true}),
-            loop(Pc, Mid, Camera);
         {webrtc, Pc, _Event} ->
             loop(Pc, Mid, Camera)
     end.

@@ -32,7 +32,7 @@ Options:
 -behaviour(webrtc_codecs_video).
 
 -export([codecs/0]).
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 -export([frame_size/2, superframe/1]).
 %% webrtc_codecs_video callbacks
 -export([
@@ -41,7 +41,9 @@ Options:
     decoder_decode/2,
     encoder_new/4,
     encoder_bitrate/2,
-    encoder_encode/7
+    encoder_encode/7,
+    decoder_close/1,
+    encoder_close/1
 ]).
 -export([implementation/2]).
 
@@ -93,6 +95,12 @@ encode(Raw, St) -> webrtc_codecs_video:encode(Raw, St).
 
 -doc false.
 info(St) -> webrtc_codecs_video:info(St).
+
+-doc false.
+control(Event, St) -> webrtc_codecs_video:control(Event, St).
+
+-doc false.
+terminate(St) -> webrtc_codecs_video:terminate(St).
 
 -doc """
 The size a frame declares, read from its header without decoding it:
@@ -268,3 +276,9 @@ encoder_encode(Encoder, Y, U, V, Pts, Duration, ForceKey) ->
 
 -doc false.
 implementation(_Codec, _Side) -> implementation().
+
+-doc false.
+decoder_close({_Codec, Decoder}) -> webrtc_codecs_vpx_nif:decoder_close(Decoder).
+
+-doc false.
+encoder_close(Encoder) -> webrtc_codecs_vpx_nif:encoder_close(Encoder).

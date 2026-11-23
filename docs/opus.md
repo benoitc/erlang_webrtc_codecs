@@ -100,9 +100,12 @@ Each defaults to what the negotiated `fmtp` says.
 - A longer hole is taken as a pause and nothing is made up for it.
 - A packet that is not valid Opus gives `#{dropped => invalid_packet,
   timestamp => Ts}`.
-- The bitrate is kept between 6000 and 510000, and under `maxaveragebitrate`
-  when the peer gave one.
+- The bitrate is kept between 6000 and 510000, under `maxaveragebitrate`
+  when the peer gave one, and under the limit the peer puts on the stream
+  while it has one. `webrtc:set_target_bitrate/3` sets it, as `bitrate` in
+  the raw map does.
 - Frames of 2.5, 5, 10, 20, 40 and 60 ms are accepted; another duration or
-  sample rate is an error, which turns the plugin off for the transceiver.
+  sample rate makes `webrtc:send_media/3` return an error; that audio is
+  lost and the plugin keeps running.
 - With `dtx`, a call may send nothing; timestamps keep counting.
 - RTP timestamps are at 48 kHz whatever the rate of your samples.

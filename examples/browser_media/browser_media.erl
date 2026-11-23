@@ -141,12 +141,10 @@ loop(#{pc := Pc, captures := Captures} = St) ->
         {webrtc_capture, Pid, Ended} when is_map_key(Pid, Captures) ->
             io:format("capture on ~s ended: ~p~n", [maps:get(Pid, Captures), Ended]),
             loop(St#{captures := maps:remove(Pid, Captures)});
-        %% The browser lost a frame, or the network changed.
-        {webrtc, Pc, {keyframe_request, ?VIDEO}} ->
-            _ = webrtc:send_media(Pc, ?VIDEO, #{keyframe => true}),
-            loop(St);
+        %% The network changed: video gets what audio leaves. A key
+        %% frame the browser asks for reaches the encoder by itself.
         {webrtc, Pc, {bandwidth_estimate, Bps}} ->
-            _ = webrtc:send_media(Pc, ?VIDEO, #{bitrate => max(100000, Bps - 40000)}),
+            _ = webrtc:set_target_bitrate(Pc, ?VIDEO, max(100000, Bps - 40000)),
             loop(St);
         %% What the browser sends, decoded: its microphone on our speaker.
         {webrtc, Pc, {decoded, ?AUDIO, #{format := s16le} = Audio}} ->

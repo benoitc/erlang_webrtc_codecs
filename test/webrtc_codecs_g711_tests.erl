@@ -129,16 +129,16 @@ ptime_test() ->
     ).
 
 %% A map without samples changes nothing and sends nothing; audio in
-%% another format is an error, which turns the plugin off.
+%% another format is an error, which leaves the plugin on.
 control_and_bad_input_test() ->
     St = init(<<"PCMU">>, #{}),
     ?assertEqual({ok, [], #{}, St}, ?M:encode(#{bitrate => 32000}, St)),
     ?assertMatch(
-        {error, {bad_raw_audio, #{sample_rate := 48000}}},
+        {error, {bad_raw_audio, #{sample_rate := 48000}}, _},
         ?M:encode((raw(<<0, 0>>))#{sample_rate := 48000}, St)
     ),
-    ?assertMatch({error, {bad_raw_audio, _}}, ?M:encode(raw(<<0>>), St)),
-    ?assertEqual({error, bad_raw_audio}, ?M:encode(pcm, St)),
+    ?assertMatch({error, {bad_raw_audio, _}, _}, ?M:encode(raw(<<0>>), St)),
+    ?assertEqual({error, bad_raw_audio, St}, ?M:encode(pcm, St)),
     ?assertMatch({error, {badarg, _}}, ?M:init(video, #{name => <<"PCMU">>}, #{})),
     ?assertEqual(
         {error, {unsupported_codec, <<"opus">>}}, ?M:init(audio, #{name => <<"opus">>}, #{})

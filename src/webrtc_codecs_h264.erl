@@ -38,7 +38,7 @@ main, extended and high. The level is not enforced.
 -behaviour(webrtc_codecs_video).
 
 -export([codecs/0]).
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 -export([nal_units/1, sps_info/1]).
 
 -export_type([sps_info/0]).
@@ -49,7 +49,9 @@ main, extended and high. The level is not enforced.
     decoder_decode/2,
     encoder_new/4,
     encoder_bitrate/2,
-    encoder_encode/7
+    encoder_encode/7,
+    decoder_close/1,
+    encoder_close/1
 ]).
 -export([implementation/2]).
 
@@ -130,6 +132,12 @@ encode(Raw, St) -> webrtc_codecs_video:encode(Raw, St).
 
 -doc false.
 info(St) -> webrtc_codecs_video:info(St).
+
+-doc false.
+control(Event, St) -> webrtc_codecs_video:control(Event, St).
+
+-doc false.
+terminate(St) -> webrtc_codecs_video:terminate(St).
 
 -doc """
 The NAL units of an access unit in Annex B (ITU-T H.264 annex B),
@@ -387,3 +395,9 @@ encoder_encode(Encoder, Y, U, V, Pts, _Duration, ForceKey) ->
 
 -doc false.
 implementation(h264, _Side) -> implementation().
+
+-doc false.
+decoder_close(Decoder) -> webrtc_codecs_openh264_nif:decoder_close(Decoder).
+
+-doc false.
+encoder_close(Encoder) -> webrtc_codecs_openh264_nif:encoder_close(Encoder).

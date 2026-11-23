@@ -189,8 +189,8 @@ parameter_set_limits_test() ->
             lists:foldl(
                 fun({Data, Reason}, St) ->
                     {ok, [#{dropped := Reason}], Stats, St1} =
-                        ?M:decode(#{data => Data, timestamp => 0, keyframe => false}, St),
-                    ?assertEqual(#{}, Stats),
+                        ?T:decode(?M, #{data => Data, timestamp => 0, keyframe => false}, St),
+                    ?assertEqual(#{framesDropped => 1}, Stats),
                     %% Still no decoder: nothing was given to the library.
                     ?assertEqual(undefined, element(5, St1)),
                     St1

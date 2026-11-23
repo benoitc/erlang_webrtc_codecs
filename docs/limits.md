@@ -62,7 +62,9 @@ The picture size is read from the media before any library sees it:
   memory and the NIF code. Memory the emulator hands to a NIF (resources,
   binaries) is managed by the emulator, and a misuse of it is not always
   seen: the one known bug of that kind was found by reading, not by ASan.
-- **A context is destroyed where it is collected**, which can be a normal
+- **A context is destroyed on a dirty scheduler when its stream ends.**
+  One whose plugin was never told, because the transport process was
+  killed, is destroyed where it is collected, which can be a normal
   scheduler. Measured on an Apple silicon laptop, destroying an encoder and
   a decoder takes a few microseconds, with one AV1 outlier at 1.2 ms in 100.
   `webrtc_codecs_lifecycle_SUITE` logs the figures of your machine.
