@@ -5,10 +5,21 @@
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([
-    pcmu/1, pcma/1, opus/1, vp8/1, vp9/1, av1/1, h264/1, without_rtx/1, capture/1, capture_encoded/1
+    pcmu/1,
+    pcma/1,
+    opus/1,
+    vp8/1,
+    vp9/1,
+    av1/1,
+    h264/1,
+    h264_mode_0/1,
+    without_rtx/1,
+    capture/1,
+    capture_encoded/1
 ]).
 
-all() -> [pcmu, pcma, opus, vp8, vp9, av1, h264, without_rtx, capture, capture_encoded].
+all() ->
+    [pcmu, pcma, opus, vp8, vp9, av1, h264, h264_mode_0, without_rtx, capture, capture_encoded].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(webrtc),
@@ -135,12 +146,42 @@ av1(_Config) ->
             {skip, "built without libaom or dav1d"}
     end.
 
+%% With packetization-mode=0 a packet holds one NAL unit and
+%% erlang_webrtc refuses a frame with a larger one: the encoder has to
+%% cut its pictures to fit, or nothing is sent.
+h264_mode_0(_Config) ->
+    case webrtc_codecs_openh264_nif:loaded() of
+        true ->
+            Implementation = <<"OpenH264 ", (webrtc_codecs_openh264_nif:version())/binary>>,
+            Mode0 = fun
+                (#{name := <<"H264">>, fmtp := Fmtp} = Codec) ->
+                    Codec#{
+                        fmtp := lists:keystore(
+                            <<"packetization-mode">>,
+                            1,
+                            Fmtp,
+                            {<<"packetization-mode">>, <<"0">>}
+                        )
+                    };
+                (Codec) ->
+                    Codec
+            end,
+            video(<<"H264">>, Implementation, Implementation, Mode0, {1280, 720});
+        false ->
+            {skip, "built without OpenH264"}
+    end.
+
 %% A encodes a second of the test pattern with send_media/3; B decodes
 %% every picture, close to what was sent, and the frames encoded and
 %% decoded agree in the statistics of both.
 video(Name, Encoder, Decoder) ->
+    video(Name, Encoder, Decoder, fun(Codec) -> Codec end, {320, 240}).
+
+%% The same, the negotiated codec changed by Change first, with pictures
+%% of that size.
+video(Name, Encoder, Decoder, Change, {W, H}) ->
     Plugin = {webrtc_codecs, #{bitrate => 400000}},
-    Codecs = #{video => only(Name, webrtc:default_codecs(video))},
+    Codecs = #{video => [Change(C) || C <- only(Name, webrtc:default_codecs(video))]},
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
         loopback => true, codecs => Codecs, frames => true, codec_plugins => #{video => Plugin}
@@ -150,7 +191,7 @@ video(Name, Encoder, Decoder) ->
     Count = 30,
     [
         begin
-            ok = webrtc:send_media(A, <<"0">>, webrtc_codecs_pattern:picture(320, 240, I)),
+            ok = webrtc:send_media(A, <<"0">>, webrtc_codecs_pattern:picture(W, H, I)),
             timer:sleep(33)
         end
      || I <- lists:seq(0, Count - 1)
@@ -168,12 +209,13 @@ video(Name, Encoder, Decoder) ->
         [I * 3000 || I <- lists:seq(0, Count - 1)],
         [
             T
-         || {decoded, _, #{format := i420, width := 320, height := 240, timestamp := T}} <- Decoded
+         || {decoded, _, #{format := i420, width := W1, height := H1, timestamp := T}} <- Decoded,
+            {W1, H1} =:= {W, H}
         ]
     ),
     [
         ?assert(
-            webrtc_codecs_pattern:psnr(webrtc_codecs_pattern:picture(320, 240, T div 3000), Picture) >
+            webrtc_codecs_pattern:psnr(webrtc_codecs_pattern:picture(W, H, T div 3000), Picture) >
                 30
         )
      || {decoded, _, #{timestamp := T} = Picture} <- Decoded

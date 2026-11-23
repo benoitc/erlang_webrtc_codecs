@@ -16,6 +16,9 @@
 
 ### Changed
 
+- Requires erlang_webrtc 0.3.0 or a later 0.3 version. It sends H.264 in
+  the packetization mode that was negotiated, which the H.264 change above
+  relies on.
 - The H.264 plugin refuses to start when the peer negotiated a profile it
   cannot serve, instead of sending video the peer may not decode.
 - On Linux and FreeBSD a microphone index used to mean the PulseAudio

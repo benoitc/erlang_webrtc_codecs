@@ -22,18 +22,15 @@ Found while testing the plugins.
   Fixed in erlang_webrtc 0.2.0. In 0.1.0, between two peers that negotiated
   AV1 or H.264 without its `rtx` format, 1 frame of 60 was decoded: padding
   sent on the media stream was read as a loss by the frame buffer. This
-  package requires 0.2.0, and `webrtc_codecs_peer_SUITE` has a case that
+  package requires 0.3.0, and `webrtc_codecs_peer_SUITE` has a case that
   fails if it comes back.
 - **No public way to put a codec first.** Fixed in 0.2.0 with
   `webrtc:default_codecs/1` and `webrtc:prefer_codec/2`, which the guides
   now use.
-- **H.264 `packetization-mode=0` is packetized like mode 1.** erlang_webrtc
-  0.2.0 groups small NAL units in one packet and cuts large ones whatever
-  mode was negotiated, where mode 0 allows one whole unit per packet only.
-  The H.264 plugin keeps every unit it writes under the size of a packet in
-  mode 0, so none is cut; the parameter sets of a key frame may still be
-  grouped. Its own offer is mode 1, so this shows only with a peer that
-  offers mode 0 alone.
+- **H.264 `packetization-mode=0` was packetized like mode 1.** Fixed in
+  erlang_webrtc 0.3.0: each mode gets the packet types it allows, and in
+  mode 0 a frame with a NAL unit too large for one packet is refused. The
+  H.264 plugin keeps every unit it writes under that size in mode 0.
 - **The VP9 file of the frame corpus is profile 1.**
   `test/corpora/frames/vp9.ivf` was encoded from RGB without `-pix_fmt
   yuv420p`, so it is 4:4:4, which the VP9 plugin does not decode. This
