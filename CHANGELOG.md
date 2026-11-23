@@ -4,6 +4,11 @@
 
 ### Added
 
+- `webrtc_codecs_async` runs the codecs in a process of their own, so a slow
+  codec no longer holds up the rest of the connection, data channels
+  included. Name it where you named `webrtc_codecs`. When the codec is
+  behind, pictures to encode are refused and frames to decode are dropped,
+  instead of piling up.
 - The plugins use what erlang_webrtc 0.3.0 gives them, so your application
   has less to relay:
   - A key frame the peer asks for reaches the encoder by itself.

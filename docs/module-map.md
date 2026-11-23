@@ -7,7 +7,8 @@ split this way.
 
 ## What is public and what is not
 
-You call these: `webrtc_codecs`, the codec modules as plugins,
+You call these: `webrtc_codecs`, `webrtc_codecs_async`, the codec modules
+as plugins,
 `webrtc_codecs_capture`, `webrtc_codecs_playback`, `webrtc_codecs_file`,
 `webrtc_codecs_pattern`.
 
@@ -21,6 +22,7 @@ These are internal and may change without notice: `webrtc_codecs_video`,
 | You want to change | Module | Tests |
 |---|---|---|
 | Which codec the plugin picks, the list of codecs | `src/webrtc_codecs.erl` | `test/webrtc_codecs_tests.erl` |
+| The codec in a process of its own: what is in flight, what happens when it is behind, the worker | `src/webrtc_codecs_async.erl` | `test/webrtc_codecs_async_tests.erl` with `test/webrtc_codecs_slow_plugin.erl`, `test/webrtc_codecs_peer_SUITE.erl` |
 | What every video plugin does around its library: size limit, waiting for a key frame, bitrate, key frame requests, statistics | `src/webrtc_codecs_video.erl` | `test/webrtc_codecs_video_checks.erl`, run by each video codec's tests |
 | VP8 or VP9: options, header and superframe reading | `src/webrtc_codecs_vpx.erl` | `test/webrtc_codecs_vpx_tests.erl` |
 | H.264: options, NAL units, parameter sets | `src/webrtc_codecs_h264.erl` | `test/webrtc_codecs_h264_tests.erl` |

@@ -143,6 +143,11 @@ build (none when its native library is missing). `webrtc_codecs_opus.erl`
 decode, libaom to encode), `webrtc_codecs_g711.erl` (PCMU and PCMA, pure Erlang). To add one, write the module and add it to
 `?MODULES` in `webrtc_codecs.erl`.
 
+**Asynchronous plugin:** `webrtc_codecs_async.erl` runs any of these
+plugins in a process of its own and delivers through the handle of
+erlang_webrtc, so the transport process does not wait. Its callbacks never
+wait and never queue past `max_in_flight`.
+
 **Video logic:** `webrtc_codecs_video.erl` holds what the video plugins
 share: the picture size limit, waiting for a key frame after a frame that
 was not decoded, bitrate and key frame requests, timestamps and statistics.
@@ -200,6 +205,9 @@ What `decode/2` gives and `encode/2` takes, see
   (round trip, bitrate, key frames, damaged and oversized frames, random
   input); `test/webrtc_codecs_test_media.erl` reads the encoded video of
   `test/corpus` and uses FFmpeg as a reference decoder.
+- `test/webrtc_codecs_async_tests.erl`: the asynchronous plugin with
+  `test/webrtc_codecs_slow_plugin.erl`, a plugin that takes its time and
+  fails on demand.
 - `test/webrtc_codecs_nif_tests.erl`: every native constructor, with each
   of its allocations made to fail in turn in a fault injection build.
 - `test/webrtc_codecs_docs_tests.erl`: the module map against the source
@@ -224,6 +232,9 @@ Elvis rules are configured in `elvis.config`, the only lint configuration.
 `rebar3 lint` reads that file and ignores any `{elvis, ...}` entry in
 `rebar.config` while it exists. Notable exceptions:
 
-- `webrtc_codecs` is excluded from `no_invalid_dynamic_calls`: it calls the
-  plugin module of the negotiated codec.
+- `webrtc_codecs` and `webrtc_codecs_async` are excluded from
+  `no_invalid_dynamic_calls`: they call the plugin module of the negotiated
+  codec, or the one they run.
+- `webrtc_codecs_async` is excluded from `no_receive_without_timeout`: its
+  worker waits for work as long as the transport process it monitors lives.
 - Atom naming regex: `^[a-z](_?[a-zA-Z0-9]+)*(_SUITE)?$`

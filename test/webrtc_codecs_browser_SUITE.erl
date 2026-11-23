@@ -13,11 +13,11 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
--export([vp8/1, vp9/1, av1/1, h264/1]).
+-export([vp8/1, vp9/1, av1/1, h264/1, vp8_async/1]).
 
 -define(MID, <<"0">>).
 
-all() -> [vp8, vp9, av1, h264].
+all() -> [vp8, vp9, av1, h264, vp8_async].
 
 init_per_suite(Config) ->
     case adapter() of
@@ -69,6 +69,10 @@ up(Dir) ->
 
 vp8(Config) -> both_ways(Config, <<"VP8">>, webrtc_codecs_vpx_nif:loaded()).
 
+%% The same with the codec in a process of its own.
+vp8_async(Config) ->
+    both_ways(Config, <<"VP8">>, webrtc_codecs_vpx_nif:loaded(), webrtc_codecs_async).
+
 vp9(Config) -> both_ways(Config, <<"VP9">>, webrtc_codecs_vpx_nif:loaded()).
 
 av1(Config) ->
@@ -78,13 +82,16 @@ av1(Config) ->
 
 h264(Config) -> both_ways(Config, <<"H264">>, webrtc_codecs_openh264_nif:loaded()).
 
-both_ways(_Config, Codec, false) ->
+both_ways(Config, Codec, Built) ->
+    both_ways(Config, Codec, Built, webrtc_codecs).
+
+both_ways(_Config, Codec, false, _Module) ->
     {skip, "built without the library of " ++ binary_to_list(Codec)};
-both_ways(Config, Codec, true) ->
+both_ways(Config, Codec, true, Module) ->
     Port = start(proplists:get_value(adapter, Config)),
     %% We offer this codec alone, with its retransmission format, and a
     %% transceiver that sends as well as receives.
-    Plugin = {webrtc_codecs, #{bitrate => 500000}},
+    Plugin = {Module, #{bitrate => 500000}},
     Video = webrtc:default_codecs(video),
     [#{pt := Pt} = Wanted] = [C || #{name := N} = C <- Video, N =:= Codec],
     Rtx = [
