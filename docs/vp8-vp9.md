@@ -87,6 +87,8 @@ codec_plugin => {webrtc_codecs, #{bitrate => 800000, max_bitrate => 2500000}}
 
 ## Notes
 
+- The codec runs in the transport process of the connection. For large
+  pictures or a slow machine, [run it outside](async.md).
 - The encoder works in real time at a constant bitrate and holds no frame
   back: one picture in, one frame out.
 - The default bitrate is 0.1 bit per pixel at 30 pictures per second: about

@@ -10,7 +10,7 @@ uses a term it does not explain.
 | peer connection | One WebRTC session with one peer. In erlang_webrtc it is a process you own, which sends you `{webrtc, Pc, Event}` messages. |
 | transceiver | One audio or video line of a peer connection, which sends, receives or both. |
 | mid | The name of a transceiver in the session description, a binary such as `<<"0">>`. You pass it to `send_media/3`. |
-| transport process | The erlang_webrtc process that handles every packet of one connection. Codec plugins run inside it. |
+| transport process | The erlang_webrtc process that handles every packet of one connection. A codec plugin is called from it, and the codec runs inside it unless you use `webrtc_codecs_async`. |
 | codec plugin | A module with the `webrtc_media_codec` behaviour, which erlang_webrtc calls to decode what a transceiver receives and encode what you send. This package is a set of them. |
 | negotiated codec | The codec both peers agreed on for a transceiver, with its `fmtp` parameters. |
 | `fmtp` | The parameters of a codec in the session description, such as `profile-level-id` or `useinbandfec`. |
@@ -23,6 +23,9 @@ uses a term it does not explain.
 |---|---|
 | frame | What `decode/2` gets and `encode/2` gives: one encoded picture, or one packet of encoded audio, as a map with `data`, `timestamp` and `keyframe`. |
 | key frame | A frame that decodes on its own. A decoder that missed a frame needs one to start again. |
+| key frame request | What a receiver sends to get a key frame. A video decoder of this package sends one when it drops a frame; an encoder makes a key frame when the peer sends one. |
+| target bitrate | The bitrate you ask of an encoder, with `webrtc:set_target_bitrate/3` or `bitrate` in a raw map. The encoder is given the lower of it and the limit of the peer. |
+| limit of the peer | The most the peer accepts on a stream (TMMBR in RTCP). erlang_webrtc tells the encoder when it changes. |
 | raw media | Media that is not encoded: a picture or audio samples as an Erlang map. See [Raw media](raw-media.md). |
 | picture | One raw image: three I420 planes. |
 | I420 | A picture as a full-size brightness plane (Y) and two quarter-size colour planes (U, V). |
@@ -51,7 +54,9 @@ uses a term it does not explain.
 | Term | Meaning |
 |---|---|
 | NIF | A function written in C that the Erlang VM calls directly. Each codec library is reached through one. A defect in it can crash the VM. |
-| resource | The object in which a NIF keeps a native decoder or encoder. The VM frees it when no process holds it any more. |
+| resource | The object in which a NIF keeps a native decoder or encoder. The plugin closes it when its stream ends; the VM frees it when no process holds it any more. |
+| in flight | Frames or raw media handed to the process of `webrtc_codecs_async` and not done yet. Their number has a limit, `max_in_flight`. |
+| worker | The process `webrtc_codecs_async` starts for one stream, in which the codec runs. |
 | dirty scheduler | A VM thread for native calls that take time. Codec calls run there so that ordinary Erlang code is not held up. |
 | port | An external program the VM starts and talks to. FFmpeg and ffplay run as ports, so that they cannot crash the VM. |
 | header reader | The Erlang code that reads a frame's header to learn its size and whether it is a key frame, before any library is called. |

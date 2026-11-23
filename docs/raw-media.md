@@ -91,5 +91,7 @@ end.
 - The codecs of a transceiver are destroyed when its stream ends or the
   connection closes.
 - Encoding and decoding run in the transport process of the connection, so
-  each call delays its packets by the time the codec takes.
+  each call delays its packets by the time the codec takes. When that is too
+  long, [run the codec outside the transport process](async.md): same raw
+  media, another plugin name.
 - `webrtc_codecs_pattern:picture/3` and `tone/4` make raw media for tests.

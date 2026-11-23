@@ -87,6 +87,8 @@ the encoder without you.
 
 ## Notes
 
+- The codec runs in the transport process of the connection. For large
+  pictures or a slow machine, [run it outside](async.md).
 - Main profile only: 8 bit, 4:2:0 or monochrome. Another `profile` in the
   negotiated `fmtp` fails `init/3`; a picture in another format is dropped
   (`unsupported_format`).

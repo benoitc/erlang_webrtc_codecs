@@ -39,6 +39,11 @@ Findings for this release:
 | `webrtc_codecs_docs_tests` checks that calls in code blocks exist, not their arguments. | documentation | Carried over; can wait |
 | Question 4 of section 13 (which exported helpers are public API) | design | Yours; can wait |
 
+Decided: version 0.2.0, with the first four findings fixed before it (the
+glossary, the links to the asynchronous guide, the architecture page, the
+contributing guide). They are done on this branch. The two README and
+CHANGELOG findings go with the version bump; the rest waits.
+
 Not established, and said so in the pages: a physical microphone on Linux
 or FreeBSD, sndio, a peer that offers only `packetization-mode=0`.
 
