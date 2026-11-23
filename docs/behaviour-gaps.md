@@ -4,15 +4,26 @@ This page lists what `webrtc_media_codec` in erlang_webrtc does not let a
 plugin do, and how this package works within it. You need it when you wonder
 why a plugin behaves as it does, or when you plan a change to the behaviour.
 
-| Missing | What the plugins do instead |
+Nothing is missing today for what the plugins do. One thing the behaviour
+offers is not used yet:
+
+| Offered by erlang_webrtc 0.3.0 | Here |
 |---|---|
-| A way to tell the encoder the bitrate changed (`{bandwidth_estimate, Bps}` goes to the owner only) | You pass `bitrate => Bps` in the raw map given to `webrtc:send_media/3` |
-| A way to tell the encoder a key frame is wanted (`{keyframe_request, Mid}` goes to the owner only) | You pass `keyframe => true` in the next raw picture |
-| A way for a decoder to ask the sender for a key frame | `decode/2` gives `#{dropped => Reason, timestamp => Ts}` and you call `webrtc:request_keyframe/2` |
-| A recoverable error: `{error, _}` from `decode/2` or `encode/2` turns the plugin off until the connection ends | Bad media is reported as a dropped output; `{error, _}` is kept for raw media in the wrong format and for a codec that cannot start |
-| A count of frames the decoder dropped: `framesDropped` is not a member a plugin may report | The dropped output is the only trace |
-| A callback when the transceiver stops | Native contexts are freed when the plugin state is garbage collected |
-| Outputs delivered later than the call that produced them | Every call is synchronous, so the transport waits for the codec. To keep the transport free, run the plugin module in your own process and use `webrtc:send_frame/4` and `webrtc:report_media_stats/4` |
+| A plugin that runs its codec in a process of its own and delivers later (`init/4`) | Not used: every call is synchronous, so the transport process waits for the codec. To keep it free today, run the plugin module in your own process and use `webrtc:send_frame/4` and `webrtc:report_media_stats/4` |
+
+## What was missing before 0.3.0
+
+Each of these was worked around in versions 0.1 of this package, and is
+now done through the behaviour.
+
+| Was missing | Now |
+|---|---|
+| A way to tell the encoder the bitrate changed | `control/2` gets the target set with `webrtc:set_target_bitrate/3` and the limit of the peer. `bitrate` in the raw map still works |
+| A way to tell the encoder a key frame is wanted | `control/2` gets the request of the peer. `keyframe => true` in the raw map still works |
+| A way for a decoder to ask the sender for a key frame | `decode/2` returns `keyframe_request` with a frame it drops |
+| A recoverable error | Raw media in the wrong format returns an error with the state: one picture is lost, the plugin stays on |
+| A count of frames the decoder dropped | The video plugins report `framesDropped` |
+| A callback when the transceiver stops | `terminate/1` destroys the native codecs |
 
 ## Issues met in erlang_webrtc
 

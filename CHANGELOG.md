@@ -4,6 +4,16 @@
 
 ### Added
 
+- The plugins use what erlang_webrtc 0.3.0 gives them, so your application
+  has less to relay:
+  - A key frame the peer asks for reaches the encoder by itself.
+  - A bitrate limit from the peer is applied to the encoder, and
+    `webrtc:set_target_bitrate/3` sets its target.
+  - A video decoder that drops a frame asks the sender for a key frame
+    itself, and counts the frame in `framesDropped`. Set
+    `request_keyframes => false` to keep doing it yourself.
+  - The codecs of a stream are freed when it ends, instead of at some later
+    time.
 - H.264 follows what was negotiated. With `packetization-mode=0` the encoder
   cuts each picture into pieces that fit one packet, as that mode requires;
   the `max_nal_size` option sets their size.
@@ -16,6 +26,12 @@
 
 ### Changed
 
+- Raw media in the wrong format no longer turns the plugin off.
+  `webrtc:send_media/3` returns an error for that picture or audio, and the
+  next one is encoded.
+- `bitrate` and `keyframe` in the raw map still work, but you no longer need
+  them to follow the peer. An application that still asks for a key frame
+  after each dropped frame now sends the request twice, which is harmless.
 - Requires erlang_webrtc 0.3.0 or a later 0.3 version. It sends H.264 in
   the packetization mode that was negotiated, which the H.264 change above
   relies on.

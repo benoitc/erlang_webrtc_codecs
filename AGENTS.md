@@ -35,10 +35,11 @@ before it is called done, committed or opened as a pull request:
    decoded is dropped and reported, not kept and not retried.
    [docs/limits.md](docs/limits.md) lists every limit: add yours to it.
 4. **The plugin stays on.** erlang_webrtc turns a plugin off for good when
-   it raises or returns `{error, _}`. Bad media from the peer is not an
-   error: `decode/2` returns a `t:webrtc_codecs:dropped/0` output. Errors are
-   for what the application got wrong (raw media in the wrong format) and
-   for a codec that cannot start.
+   it raises or returns `{error, Reason}`. Bad media from the peer is not an
+   error: `decode/2` returns a `t:webrtc_codecs:dropped/0` output, counted in
+   `framesDropped`. What the application got wrong (raw media in the wrong
+   format) is `{error, Reason, State}`, which loses one picture and leaves
+   the plugin on. `{error, Reason}` is for a codec that cannot start.
 
 5. **An external program has one owner and an end.** FFmpeg and ffplay are
    started through `webrtc_codecs_exec`, without a shell. Media to or from
@@ -50,6 +51,10 @@ Each of these has a test: a truncated or corrupt frame for the first and
 third, the error path for the fourth, a program that misbehaves
 (`test/fake_ffmpeg.escript`) for the fifth. A constructor's failure paths
 are run with fault injection.
+
+A plugin with native contexts closes them in `terminate/1`, and where it
+replaces one. Every NIF call on a context goes through `WC_ENTER`, so a
+closed context answers `{error, closed}`.
 
 In a constructor, nothing is read from a resource after
 `enif_release_resource`: the release may free it. Constructors use

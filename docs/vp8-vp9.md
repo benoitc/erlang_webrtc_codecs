@@ -31,8 +31,8 @@ Check that the codecs are there:
 receive
     {webrtc, Pc, {decoded, Mid, #{format := i420, width := W, height := H} = Picture}} ->
         show(Picture);
-    {webrtc, Pc, {decoded, Mid, #{dropped := _Reason}}} ->
-        webrtc:request_keyframe(Pc, Mid)
+    {webrtc, Pc, {decoded, Mid, #{dropped := Reason}}} ->
+        logger:info("frame dropped: ~p", [Reason])
 end.
 ```
 
@@ -58,14 +58,16 @@ ok = webrtc:send_media(Pc, Mid, #{
 ```erlang
 receive
     {webrtc, Pc, {bandwidth_estimate, Bps}} ->
-        ok = webrtc:send_media(Pc, Mid, #{bitrate => Bps});
-    {webrtc, Pc, {keyframe_request, Mid}} ->
-        ok = webrtc:send_media(Pc, Mid, #{keyframe => true})
+        ok = webrtc:set_target_bitrate(Pc, Mid, Bps)
 end.
 ```
 
-Both apply to the next picture. You can also put `bitrate` and `keyframe`
-in the picture itself.
+The estimate is for the whole connection: give each encoder its share. A
+key frame the peer asks for and a limit the peer puts on the stream reach
+the encoder without you.
+
+You can also put `bitrate` and `keyframe => true` in a picture, or in a map
+of their own, to change the encoder from the process that sends.
 
 ## Options
 
@@ -93,7 +95,9 @@ codec_plugin => {webrtc_codecs, #{bitrate => 800000, max_bitrate => 2500000}}
 - Width and height may be odd; the chroma planes are then rounded up.
 - A frame that cannot be decoded gives `#{dropped => Reason, timestamp =>
   Ts}`, and so does every frame after it until a key frame
-  (`waiting_for_keyframe`). Ask for one with `webrtc:request_keyframe/2`.
+  (`waiting_for_keyframe`). The decoder asks the sender for a key frame
+  itself, at the first frame dropped and then about once a second; the
+  `request_keyframes => false` option leaves that to you.
 - A frame that declares a picture larger than `max_pixels` is dropped
   (`too_large`) before any memory is taken for it. For VP9 that is every
   frame of a superframe, the ones not shown included; a superframe index

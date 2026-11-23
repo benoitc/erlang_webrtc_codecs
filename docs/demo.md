@@ -76,8 +76,9 @@ has one reader.
    `webrtc_codecs` plugin; the page answers. Signaling is two HTTP requests.
 2. Once connected, it starts one capture per source and passes every picture
    and chunk of audio to `webrtc:send_media/3`.
-3. It forwards `{keyframe_request, Mid}` and `{bandwidth_estimate, Bps}` to
-   the video encoder.
+3. It gives the video encoder its share of `{bandwidth_estimate, Bps}` with
+   `webrtc:set_target_bitrate/3`. Key frame requests of the browser reach
+   the encoder without it.
 4. Audio the browser sends comes back as `{decoded, Mid, Audio}` and goes to
    a speaker sink.
 

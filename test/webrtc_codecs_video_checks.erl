@@ -24,7 +24,11 @@ all(#{name := Name} = Ctx) ->
             {"starts on a key frame", fun starts_on_key/1},
             {"too large", fun too_large/1},
             {"garbage", fun garbage/1},
-            {"bad raw", fun bad_raw/1}
+            {"bad raw", fun bad_raw/1},
+            {"asks for a key frame", fun asks_for_keyframe/1},
+            {"control", fun control/1},
+            {"goes on after an error", fun goes_on/1},
+            {"terminate", fun terminate/1}
         ]
     ].
 
@@ -157,7 +161,7 @@ new_size(#{mod := Mod} = Ctx) ->
     {_, _, St1} = encode(Ctx, 320, 240, [0, 1], init(Ctx, #{})),
     {ok, [#{keyframe := true} = Frame], _, St2} = Mod:encode(?P:picture(176, 144, 2), St1),
     {ok, [#{keyframe := false}], _, _} = Mod:encode(?P:picture(176, 144, 3), St2),
-    {ok, [#{width := 176, height := 144}], _, _} = Mod:decode(Frame, init(Ctx, #{})).
+    {ok, [#{width := 176, height := 144}], _, _} = ?T:decode(Mod, Frame, init(Ctx, #{})).
 
 %% Odd sizes round the chroma planes up. A library that only takes even
 %% sizes refuses the picture rather than cut it.
@@ -174,12 +178,14 @@ odd_size(#{mod := Mod} = Ctx) ->
     case maps:get(odd_sizes, Ctx, true) of
         true ->
             {ok, [Frame], _, _} = Mod:encode(Picture, init(Ctx, #{})),
-            {ok, [#{width := 33, height := 17, y := Y, u := U, v := V}], _, _} = Mod:decode(
-                Frame, init(Ctx, #{})
+            {ok, [#{width := 33, height := 17, y := Y, u := U, v := V}], _, _} = ?T:decode(
+                Mod,
+                Frame,
+                init(Ctx, #{})
             ),
             ?assertEqual({33 * 17, 17 * 9, 17 * 9}, {byte_size(Y), byte_size(U), byte_size(V)});
         false ->
-            ?assertMatch({error, {_, odd_size}}, Mod:encode(Picture, init(Ctx, #{})))
+            ?assertMatch({error, {_, odd_size}, _}, Mod:encode(Picture, init(Ctx, #{})))
     end.
 
 %% A frame cut short is dropped and said so, then frames are dropped
@@ -203,17 +209,17 @@ damaged_frame(#{mod := Mod} = Ctx) ->
 
 starts_on_key(#{mod := Mod} = Ctx) ->
     {[_Key, Inter], _, _} = encode(Ctx, 176, 144, [0, 1], init(Ctx, #{})),
-    {ok, [#{dropped := waiting_for_keyframe}], Stats, _} = Mod:decode(Inter, init(Ctx, #{})),
-    ?assertEqual(#{}, Stats).
+    {ok, [#{dropped := waiting_for_keyframe}], Stats, _} = ?T:decode(Mod, Inter, init(Ctx, #{})),
+    ?assertEqual(#{framesDropped => 1}, Stats).
 
 %% A key frame larger than max_pixels is refused, and what follows it
 %% waits for a key frame that fits.
 too_large(#{mod := Mod} = Ctx) ->
     {[Key, Inter], _, _} = encode(Ctx, 320, 240, [0, 1], init(Ctx, #{})),
     St0 = init(Ctx, #{max_pixels => 176 * 144}),
-    {ok, [#{dropped := too_large, timestamp := 0}], _, St1} = Mod:decode(Key, St0),
-    {ok, [#{dropped := waiting_for_keyframe}], _, _} = Mod:decode(Inter, St1),
-    {ok, [#{width := 320}], _, _} = Mod:decode(Key, init(Ctx, #{max_pixels => 320 * 240})).
+    {ok, [#{dropped := too_large, timestamp := 0}], _, St1} = ?T:decode(Mod, Key, St0),
+    {ok, [#{dropped := waiting_for_keyframe}], _, _} = ?T:decode(Mod, Inter, St1),
+    {ok, [#{width := 320}], _, _} = ?T:decode(Mod, Key, init(Ctx, #{max_pixels => 320 * 240})).
 
 %% Whatever bytes a peer sends, decode/2 answers ok with pictures within
 %% the size limit or a dropped frame: random bytes, and real frames with
@@ -239,8 +245,10 @@ garbage(#{mod := Mod} = Ctx) ->
                     0 -> rand:bytes(rand:uniform(200));
                     _ -> Damage(maps:get(data, lists:nth(1 + I rem 10, Real)))
                 end,
-            {ok, Outs, _, St1} = Mod:decode(
-                #{data => Data, timestamp => I * 3000, keyframe => false}, St
+            {ok, Outs, _, St1} = ?T:decode(
+                Mod,
+                #{data => Data, timestamp => I * 3000, keyframe => false},
+                St
             ),
             %% None for a frame that decodes and shows nothing.
             ?assert(length(Outs) =< 8),
@@ -262,15 +270,106 @@ garbage(#{mod := Mod} = Ctx) ->
     ).
 
 %% A picture whose planes do not match its size is the application's
-%% mistake: an error.
+%% mistake: an error that leaves the plugin on, with its state.
 bad_raw(#{mod := Mod} = Ctx) ->
     St = init(Ctx, #{}),
     Picture = ?P:picture(176, 144, 0),
     ?assertMatch(
-        {error, {bad_raw_picture, #{width := 320, y := {bytes, 25344}}}},
+        {error, {bad_raw_picture, #{width := 320, y := {bytes, 25344}}}, _},
         Mod:encode(Picture#{width := 320}, St)
     ),
-    ?assertMatch({error, {bad_raw_picture, _}}, Mod:encode(Picture#{u := <<>>}, St)),
-    ?assertMatch({error, {bad_raw_picture, _}}, Mod:encode(Picture#{format := nv12}, St)),
-    ?assertMatch({error, {bad_raw_picture, _}}, Mod:encode(maps:remove(timestamp, Picture), St)),
-    ?assertEqual({error, bad_raw_picture}, Mod:encode(picture, St)).
+    ?assertMatch({error, {bad_raw_picture, _}, _}, Mod:encode(Picture#{u := <<>>}, St)),
+    ?assertMatch({error, {bad_raw_picture, _}, _}, Mod:encode(Picture#{format := nv12}, St)),
+    ?assertMatch({error, {bad_raw_picture, _}, _}, Mod:encode(maps:remove(timestamp, Picture), St)),
+    ?assertEqual({error, bad_raw_picture, St}, Mod:encode(picture, St)).
+
+%% A frame that cannot be decoded asks the sender for a key frame, at
+%% the first one dropped and then once in thirty, not for each. A frame
+%% a key frame would not repair asks nothing, and neither does a plugin
+%% told not to.
+asks_for_keyframe(#{mod := Mod} = Ctx) ->
+    {[Key, Inter], _, _} = encode(Ctx, 320, 240, [0, 1], init(Ctx, #{})),
+    Asked = fun(Count, St0) ->
+        {Feedback, St} = lists:mapfoldl(
+            fun(_, StA) ->
+                case Mod:decode(Inter, StA) of
+                    {ok, [#{dropped := _}], #{framesDropped := 1}, StB, [keyframe_request]} ->
+                        {true, StB};
+                    {ok, [#{dropped := _}], #{framesDropped := 1}, StB} ->
+                        {false, StB}
+                end
+            end,
+            St0,
+            lists:seq(1, Count)
+        ),
+        {[N || {N, true} <- lists:enumerate(Feedback)], St}
+    end,
+    {Requests, St1} = Asked(65, init(Ctx, #{})),
+    ?assertEqual([1, 31, 61], Requests),
+    %% A picture, then a loss: asked again at once.
+    {ok, [#{width := 320}], _, St2} = Mod:decode(Key, St1),
+    {ok, [#{width := 320}], _, St3} = Mod:decode(Inter, St2),
+    Damaged = Inter#{data := <<(binary:part(maps:get(data, Key), 0, 3))/binary, 0:64>>},
+    case Mod:decode(Damaged#{keyframe := true}, St3) of
+        {ok, [#{dropped := _}], _, St4, [keyframe_request]} ->
+            ?assertMatch({[], _}, Asked(5, St4));
+        {ok, _, _, _} ->
+            %% Not every decoder refuses these bytes.
+            ok
+    end,
+    ?assertMatch({[], _}, Asked(40, init(Ctx, #{request_keyframes => false}))),
+    ?assertMatch(
+        {ok, [#{dropped := too_large}], #{framesDropped := 1}, _},
+        Mod:decode(Key, init(Ctx, #{max_pixels => 176 * 144}))
+    ),
+    ?assertMatch(
+        {error, {badarg, _}},
+        Mod:init(video, #{name => maps:get(name, Ctx)}, #{
+            request_keyframes => 'maybe'
+        })
+    ).
+
+%% What erlang_webrtc tells the encoder: a key frame the peer asks for,
+%% the bitrate the application sets, the most the peer allows.
+control(#{mod := Mod} = Ctx) ->
+    Picture = fun(N) -> ?P:picture(176, 144, N) end,
+    {_, _, St1} = encode(Ctx, 176, 144, [0, 1], init(Ctx, #{bitrate => 300000})),
+    {ok, St2} = Mod:control(keyframe_request, St1),
+    {ok, [#{keyframe := true}], #{targetBitrate := 300000}, St3} = Mod:encode(Picture(2), St2),
+    {ok, St4} = Mod:control({target_bitrate, 500000}, St3),
+    {ok, [#{keyframe := false}], #{targetBitrate := 500000}, St5} = Mod:encode(Picture(3), St4),
+    {ok, St6} = Mod:control({max_bitrate, 200000}, St5),
+    {ok, [_], #{targetBitrate := 200000}, St7} = Mod:encode(Picture(4), St6),
+    %% What the application asks for stays under what the peer allows.
+    {ok, [], #{targetBitrate := 200000}, St8} = Mod:encode(#{bitrate => 400000}, St7),
+    {ok, St9} = Mod:control({max_bitrate, infinity}, St8),
+    {ok, [_], #{targetBitrate := 400000}, St10} = Mod:encode(Picture(5), St9),
+    %% Nothing, or an event of a later erlang_webrtc, changes nothing.
+    ?assertEqual({ok, St10}, Mod:control({target_bitrate, 0}, St10)),
+    ?assertEqual({ok, St10}, Mod:control({something, new}, St10)),
+    %% Told before the first picture, they hold when the encoder starts.
+    {ok, StA} = Mod:control({max_bitrate, 150000}, init(Ctx, #{bitrate => 300000})),
+    {ok, StB} = Mod:control({target_bitrate, 250000}, StA),
+    {ok, [#{keyframe := true}], #{targetBitrate := 150000}, _} = Mod:encode(Picture(0), StB).
+
+%% An error of encode/2 comes with the state, and the plugin encodes the
+%% next picture.
+goes_on(#{mod := Mod} = Ctx) ->
+    {_, _, St1} = encode(Ctx, 176, 144, [0, 1], init(Ctx, #{})),
+    Picture = ?P:picture(176, 144, 2),
+    {error, {bad_raw_picture, _}, St2} = Mod:encode(Picture#{u := <<>>}, St1),
+    ?assertEqual(St1, St2),
+    {ok, [#{keyframe := false, timestamp := 6000}], #{framesEncoded := 1}, _} = Mod:encode(
+        Picture, St2
+    ).
+
+%% When the stream ends the codecs are destroyed, used or not.
+terminate(#{mod := Mod} = Ctx) ->
+    ?assertEqual(ok, Mod:terminate(init(Ctx, #{}))),
+    {[Key | _], _, Enc} = encode(Ctx, 176, 144, [0, 1], init(Ctx, #{})),
+    {ok, [_], _, Dec} = Mod:decode(Key, init(Ctx, #{})),
+    ?assertEqual(ok, Mod:terminate(Enc)),
+    ?assertEqual(ok, Mod:terminate(Dec)),
+    %% A state used after that tells so and stays usable.
+    ?assertMatch({error, {_, closed}, _}, Mod:encode(?P:picture(176, 144, 2), Enc)),
+    ?assertMatch({ok, [#{dropped := closed}], _, _, _}, Mod:decode(Key, Dec)).

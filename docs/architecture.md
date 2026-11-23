@@ -11,7 +11,7 @@ Everything about blocking, limits and crashes follows from where code runs.
 
 | Place | What runs there | What a failure costs |
 |---|---|---|
-| The transport process of a connection (erlang_webrtc) | The plugin's Erlang code: checks, state, statistics | A plugin that raises is turned off for its transceiver |
+| The transport process of a connection (erlang_webrtc) | The plugin's Erlang code: checks, state, statistics | A plugin that raises is turned off for its transceiver; an error it returns with its state loses one frame |
 | A dirty scheduler of the VM | The codec library, through a NIF | A defect in a library can crash the whole node |
 | An external program | FFmpeg and ffplay, for devices and files | The program ends; the node goes on |
 
@@ -49,11 +49,13 @@ Three decisions shape this path:
   header reader refuses it first. See [Limits](limits.md).
 - **Bad media is not an error.** erlang_webrtc turns a plugin off for good
   when it returns `{error, _}`. A peer must not be able to do that, so a
-  frame that cannot be decoded comes back as a dropped output, and the
-  plugin waits for the next key frame.
-- **The plugin cannot ask for a key frame.** It has no handle on the
-  connection. Your process sees the dropped output and calls
-  `webrtc:request_keyframe/2`.
+  frame that cannot be decoded comes back as a dropped output, counted in
+  `framesDropped`, and the plugin waits for the next key frame.
+- **The decoder asks for the key frame.** `decode/2` returns
+  `keyframe_request` with the first frame it drops, and again about once a
+  second while it waits, and erlang_webrtc sends it to the peer. It does
+  not ask when a key frame would not help, for a picture that is too large
+  for example.
 
 ## Sending: from a camera to packets
 
@@ -75,10 +77,14 @@ camera --> FFmpeg (own program) --socket--> capture process
                          frames --> erlang_webrtc packetizes --RTP--> peer
 ```
 
-- **Your process is in the middle on purpose.** It is the one that receives
-  `{keyframe_request, Mid}` and `{bandwidth_estimate, Bps}` from the
-  connection. The plugin behaviour has no callback for either, so you pass
-  them on inside the next raw map (`keyframe => true`, `bitrate => Bps`).
+- **The encoder hears the connection.** erlang_webrtc calls `control/2`
+  of the plugin when the peer asks for a key frame, when the peer limits
+  the bitrate of the stream, and when you call
+  `webrtc:set_target_bitrate/3`. The encoder is given the lower of the
+  bitrate asked for and the peer's limit, at the next picture.
+- **Your process shares the bandwidth.** `{bandwidth_estimate, Bps}` is for
+  the whole connection and comes to you: you decide what each encoder
+  gets. `bitrate` and `keyframe => true` in a raw map still work.
 - **A slow reader loses frames, not memory.** The capture process reads
   FFmpeg one socket message at a time, and drops what your process leaves
   waiting. Nothing queues without a bound.
@@ -90,7 +96,7 @@ camera --> FFmpeg (own program) --socket--> capture process
 
 | Thing | Owner | Ends when |
 |---|---|---|
-| A native decoder or encoder | The plugin state, held by the transport process | That state is garbage collected |
+| A native decoder or encoder | The plugin state, held by the transport process | The stream ends or the connection closes (`terminate/1`); when the state is garbage collected otherwise |
 | The FFmpeg of a capture | The capture process | The capture stops, or its owner dies |
 | The FFmpeg or ffplay of a sink | The sink process | `stop/1`, or the process that started it dies |
 

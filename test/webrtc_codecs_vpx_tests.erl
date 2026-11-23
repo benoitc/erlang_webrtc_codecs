@@ -49,7 +49,7 @@ corpus(vp9) ->
     Frames = ?T:frames(?T:ivf(Path), ?C:is_key(ctx(vp9))),
     {Outs, Stats, _} = ?T:decode_all(?M, Frames, ?C:init(ctx(vp9), #{})),
     ?assertEqual(lists:duplicate(12, unsupported_profile), [R || #{dropped := R} <- Outs]),
-    ?assertEqual(#{}, Stats),
+    ?assertEqual(#{framesDropped => 12}, Stats),
     case ?T:ffmpeg_encode("-pix_fmt yuv420p -c:v libvpx-vp9 -g 6 -b:v 100k", ".ivf") of
         false ->
             ok;
@@ -167,13 +167,15 @@ superframe_limit_test() ->
             Bad = superframe([Key, oversized()]),
             ?assertEqual({key, 65536, 65536}, ?M:frame_info(vp9, Bad)),
             St0 = ?C:init(ctx(vp9), #{}),
-            {ok, [#{dropped := too_large}], Stats, St1} = ?M:decode(Frame#{data := Bad}, St0),
-            ?assertEqual(#{}, Stats),
+            {ok, [#{dropped := too_large}], Stats, St1} = ?T:decode(?M, Frame#{data := Bad}, St0),
+            ?assertEqual(#{framesDropped => 1}, Stats),
             %% No decoder was made: nothing was given to the library.
             ?assertEqual(undefined, element(5, St1)),
             %% A superframe whose frames all fit decodes.
-            {ok, [#{width := 176, height := 144}], _, _} = ?M:decode(
-                Frame#{data := superframe([Key])}, St0
+            {ok, [#{width := 176, height := 144}], _, _} = ?T:decode(
+                ?M,
+                Frame#{data := superframe([Key])},
+                St0
             );
         false ->
             ok
@@ -191,9 +193,9 @@ trailing_frame_test() ->
             Bad = <<Key/binary, (oversized())/binary>>,
             ?assertEqual({key, 176, 144}, ?M:frame_info(vp9, Bad)),
             {ok, [#{width := 176, height := 144}], #{framesDecoded := 1}, St} =
-                ?M:decode(Frame#{data := Bad}, ?C:init(ctx(vp9), #{})),
+                ?T:decode(?M, Frame#{data := Bad}, ?C:init(ctx(vp9), #{})),
             %% And the stream goes on.
-            {ok, [#{width := 176, height := 144}], _, _} = ?M:decode(Next, St);
+            {ok, [#{width := 176, height := 144}], _, _} = ?T:decode(?M, Next, St);
         false ->
             ok
     end.

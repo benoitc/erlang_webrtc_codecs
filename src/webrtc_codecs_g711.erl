@@ -87,10 +87,11 @@ encode(#{format := s16le, sample_rate := ?RATE, channels := 1, samples := Pcm} =
 encode(#{} = Raw, St) when not is_map_key(samples, Raw) ->
     %% A control map: G.711 has one bitrate and no key frames.
     {ok, [], #{}, St};
-encode(#{} = Raw, _St) ->
-    {error, {bad_raw_audio, maps:without([samples], Raw)}};
-encode(_Raw, _St) ->
-    {error, bad_raw_audio}.
+encode(#{} = Raw, St) ->
+    %% An error leaves the plugin on: the audio is lost.
+    {error, {bad_raw_audio, maps:without([samples], Raw)}, St};
+encode(_Raw, St) ->
+    {error, bad_raw_audio, St}.
 
 -doc false.
 info(_St) ->

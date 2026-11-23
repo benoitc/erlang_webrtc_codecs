@@ -63,14 +63,18 @@ shared_reference(_Config) ->
         begin
             {Frames0, Encoder} = encoded(Mod, Name, Kind, 20),
             Frames = lists:append(Frames0),
-            {ok, _, _, Decoder} = Mod:decode(hd(Frames), init(Mod, Name, #{})),
+            {ok, _, _, Decoder} = webrtc_codecs_test_media:decode(
+                Mod, hd(Frames), init(Mod, Name, #{})
+            ),
             Self = self(),
             Workers = [
                 spawn_link(fun() ->
                     Results = [
                         begin
-                            {ok, _, _, _} = Mod:decode(
-                                lists:nth(1 + (I + W) rem length(Frames), Frames), Decoder
+                            {ok, _, _, _} = webrtc_codecs_test_media:decode(
+                                Mod,
+                                lists:nth(1 + (I + W) rem length(Frames), Frames),
+                                Decoder
                             ),
                             case Mod:encode(raw(Kind, I + W), Encoder) of
                                 {ok, _, _, _} -> ok;
@@ -160,7 +164,7 @@ bad_media_for_long(_Config) ->
                             timestamp => I * 3000,
                             keyframe => false
                         },
-                        {ok, _, _, St1} = Mod:decode(Frame, St),
+                        {ok, _, _, St1} = webrtc_codecs_test_media:decode(Mod, Frame, St),
                         St1
                     end,
                     St0,
@@ -173,7 +177,7 @@ bad_media_for_long(_Config) ->
             After = rss(),
             {Outs, _} = lists:mapfoldl(
                 fun(Frame, St) ->
-                    {ok, Out, _, StN} = Mod:decode(Frame, St),
+                    {ok, Out, _, StN} = webrtc_codecs_test_media:decode(Mod, Frame, St),
                     {Out, StN}
                 end,
                 St2,
@@ -235,7 +239,9 @@ many_contexts(_Config) ->
 %% An encoder and a decoder that have worked, as one term to drop.
 used(Mod, Name, Kind) ->
     {Frames, Encoder} = encoded(Mod, Name, Kind, 2),
-    {ok, _, _, Decoder} = Mod:decode(hd(lists:append(Frames)), init(Mod, Name, #{})),
+    {ok, _, _, Decoder} = webrtc_codecs_test_media:decode(
+        Mod, hd(lists:append(Frames)), init(Mod, Name, #{})
+    ),
     {Encoder, Decoder}.
 
 tick(Last, Most) ->

@@ -34,7 +34,7 @@ Options:
 -behaviour(webrtc_codecs_video).
 
 -export([codecs/0]).
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 -export([obu_types/1]).
 %% webrtc_codecs_video callbacks
 -export([
@@ -43,7 +43,9 @@ Options:
     decoder_decode/2,
     encoder_new/4,
     encoder_bitrate/2,
-    encoder_encode/7
+    encoder_encode/7,
+    decoder_close/1,
+    encoder_close/1
 ]).
 -export([implementation/2]).
 
@@ -94,6 +96,12 @@ encode(Raw, St) -> webrtc_codecs_video:encode(Raw, St).
 
 -doc false.
 info(St) -> webrtc_codecs_video:info(St).
+
+-doc false.
+control(Event, St) -> webrtc_codecs_video:control(Event, St).
+
+-doc false.
+terminate(St) -> webrtc_codecs_video:terminate(St).
 
 -doc """
 The types of the OBUs of a temporal unit in the low overhead format (AV1
@@ -178,3 +186,9 @@ encoder_encode(Encoder, Y, U, V, Pts, Duration, ForceKey) ->
 -doc false.
 implementation(av1, decoder) -> <<"dav1d ", (webrtc_codecs_dav1d_nif:version())/binary>>;
 implementation(av1, encoder) -> <<"libaom ", (webrtc_codecs_aom_nif:version())/binary>>.
+
+-doc false.
+decoder_close(Decoder) -> webrtc_codecs_dav1d_nif:decoder_close(Decoder).
+
+-doc false.
+encoder_close(Encoder) -> webrtc_codecs_aom_nif:encoder_close(Encoder).

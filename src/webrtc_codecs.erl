@@ -21,7 +21,7 @@ negotiated codec in both directions.
 -behaviour(webrtc_media_codec).
 
 -export([available/0, module/1]).
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 
 -export_type([picture/0, audio/0, control/0, dropped/0, codec_info/0]).
 
@@ -31,9 +31,11 @@ bytes and `u` and `v` are a quarter of that each. When the width or the
 height is odd, the chroma planes round it up: `((width + 1) div 2) *
 ((height + 1) div 2)` bytes. `timestamp` is in 90 kHz units.
 
-To an encoder, `keyframe => true` asks for a key frame (set it after
-`{keyframe_request, Mid}`) and `bitrate` sets the target in bits per
-second (set it after `{bandwidth_estimate, Bps}`).
+To an encoder, `keyframe => true` asks for a key frame and `bitrate`
+sets the target in bits per second. Neither is needed to follow the
+peer: its key frame requests and its bitrate limit reach the encoder
+through erlang_webrtc, and `webrtc:set_target_bitrate/3` sets the
+target.
 """.
 -type picture() :: #{
     format := i420,
@@ -68,8 +70,8 @@ encoder counts samples from the last one it was given, or from 0) and
 
 -doc """
 What a decoder gives in place of a picture or samples for a frame it
-could not decode. The frame is dropped; for video, ask the sender for a
-key frame with `webrtc:request_keyframe/2`.
+could not decode. The frame is dropped; a video decoder asks the sender
+for a key frame itself.
 """.
 -type dropped() :: #{dropped := term(), timestamp := non_neg_integer()}.
 
@@ -128,5 +130,24 @@ encode(Raw, {Mod, St}) ->
 info({Mod, St}) ->
     Mod:info(St).
 
+%% What erlang_webrtc tells an encoder, for the plugins that listen.
+-doc false.
+control(Event, {Mod, St} = State) ->
+    case erlang:function_exported(Mod, control, 2) of
+        true -> wrap(Mod, Mod:control(Event, St));
+        false -> {ok, State}
+    end.
+
+%% The stream ended: the plugin frees what it holds.
+-doc false.
+terminate({Mod, St}) ->
+    case erlang:function_exported(Mod, terminate, 1) of
+        true -> Mod:terminate(St);
+        false -> ok
+    end.
+
+wrap(Mod, {ok, St}) -> {ok, {Mod, St}};
 wrap(Mod, {ok, Out, Stats, St}) -> {ok, Out, Stats, {Mod, St}};
+wrap(Mod, {ok, Out, Stats, St, Feedback}) -> {ok, Out, Stats, {Mod, St}, Feedback};
+wrap(Mod, {error, Reason, St}) -> {error, Reason, {Mod, St}};
 wrap(_Mod, {error, _} = E) -> E.

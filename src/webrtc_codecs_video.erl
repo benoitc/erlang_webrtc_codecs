@@ -6,9 +6,9 @@
 %% an encoder that follows the bitrate and key frame requests of the raw
 %% map, and the statistics of both. A plugin module gives the library
 %% calls through the callbacks below and delegates init/3, decode/2,
-%% encode/2 and info/1 here.
+%% encode/2, info/1, control/2 and terminate/1 here.
 
--export([init/3, decode/2, encode/2, info/1]).
+-export([init/3, decode/2, encode/2, info/1, control/2, terminate/1]).
 -export([fmtp/3]).
 
 -export_type([planes/0, frame_info/0, settings/0]).
@@ -50,8 +50,18 @@
     {ok, [{Frame :: binary(), Key :: boolean()}], Qp :: non_neg_integer() | undefined}
     | {error, term()}.
 -callback implementation(Codec :: atom(), decoder | encoder) -> binary().
+%% Destroy the codec now, not when the reference is collected.
+-callback decoder_close(Decoder :: term()) -> ok.
+-callback encoder_close(Encoder :: term()) -> ok.
 
 -define(MIN_BITRATE, 30000).
+%% The least an encoder is given, whatever the peer allows.
+-define(FLOOR_BITRATE, 1000).
+%% Frames dropped between two key frame requests while the decoder
+%% waits for a key frame: about a second of video.
+-define(REQUEST_EVERY, 30).
+%% Drops a key frame would not repair.
+-define(HOPELESS, [too_large, unsupported_parameter_set, unsupported_profile]).
 -define(MAX_PIXELS, 3840 * 2160).
 -define(MAX_DIMENSION, 16384).
 %% Duration given to the rate control when the timestamps do not tell.
@@ -64,8 +74,12 @@
     decoder :: term(),
     %% Frames are dropped until a key frame comes.
     need_key = true :: boolean(),
+    %% Frames dropped since the last picture.
+    drops = 0 :: non_neg_integer(),
     encoder :: undefined | {term(), pos_integer(), pos_integer()},
     bitrate :: undefined | pos_integer(),
+    %% The most the peer allows (TMMBR).
+    peer_max = infinity :: infinity | non_neg_integer(),
     %% The bitrate the encoder has.
     applied :: undefined | pos_integer(),
     force_key = false :: boolean(),
@@ -81,6 +95,7 @@ init(Impl, Codec, Opts) ->
     Valid =
         lists:all(fun(K) -> positive(maps:get(K, Opts, 1)) end, Positive) andalso
             maps:get(threads, Opts, 1) =< 64 andalso
+            is_boolean(maps:get(request_keyframes, Opts, true)) andalso
             is_integer(maps:get(cpu_used, Opts, 0)) andalso
             abs(maps:get(cpu_used, Opts, 0)) =< 16,
     case Valid of
@@ -127,7 +142,10 @@ max_pixels(#st{opts = Opts}) ->
 
 %% Decoding
 
--spec decode(webrtc_media_codec:frame(), #st{}) -> {ok, [map()], map(), #st{}} | {error, term()}.
+-spec decode(webrtc_media_codec:frame(), #st{}) ->
+    {ok, [map()], map(), #st{}}
+    | {ok, [map()], map(), #st{}, [keyframe_request]}
+    | {error, term()}.
 decode(#{data := Data, timestamp := Ts}, #st{impl = Impl, codec = Codec, need_key = NeedKey} = St) ->
     Max = max_pixels(St),
     case Impl:frame_info(Codec, Data) of
@@ -156,16 +174,27 @@ decode1(Data, Ts, Key, #st{decoder = Decoder, impl = Impl} = St) ->
                 keyFramesDecoded => key_count(Key andalso Count > 0),
                 totalDecodeTime => seconds(T0)
             },
-            {ok, [picture(P, Ts) || P <- Pictures], qp(Qp, Count, Stats), St};
+            {ok, [picture(P, Ts) || P <- Pictures], qp(Qp, Count, Stats), St#st{drops = 0}};
         {error, Reason} ->
             %% What the decoder holds may be damaged or oversized: start
             %% again from a new one at the next key frame.
+            ok = Impl:decoder_close(Decoder),
             dropped(Reason, Ts, St#st{decoder = undefined, need_key = true})
     end.
 
-%% Bad media from the peer: the frame is dropped, the plugin goes on.
-dropped(Reason, Ts, St) ->
-    {ok, [#{dropped => Reason, timestamp => Ts}], #{}, St}.
+%% Bad media from the peer: the frame is dropped and counted, the plugin
+%% goes on. The sender is asked for a key frame at the first frame
+%% dropped and then once in a while, unless a key frame would not help.
+dropped(Reason, Ts, #st{drops = Drops, opts = Opts} = St0) ->
+    St = St0#st{drops = Drops + 1},
+    Outs = [#{dropped => Reason, timestamp => Ts}],
+    Ask =
+        maps:get(request_keyframes, Opts, true) andalso Drops rem ?REQUEST_EVERY =:= 0 andalso
+            not lists:member(Reason, ?HOPELESS),
+    case Ask of
+        true -> {ok, Outs, #{framesDropped => 1}, St, [keyframe_request]};
+        false -> {ok, Outs, #{framesDropped => 1}, St}
+    end.
 
 picture({W, H, Y, U, V}, Ts) ->
     #{format => i420, width => W, height => H, y => Y, u => U, v => V, timestamp => Ts}.
@@ -181,7 +210,10 @@ seconds(T0) ->
 
 %% Encoding
 
--spec encode(term(), #st{}) -> {ok, [webrtc_media_codec:frame()], map(), #st{}} | {error, term()}.
+%% An error leaves the plugin on: the picture is lost, the next one is
+%% tried.
+-spec encode(term(), #st{}) ->
+    {ok, [webrtc_media_codec:frame()], map(), #st{}} | {error, term(), #st{}}.
 encode(
     #{format := i420, width := W, height := H, y := Y, u := U, v := V, timestamp := Ts} = Raw, St0
 ) when
@@ -194,21 +226,21 @@ encode(
             byte_size(Y) =:= W * H andalso byte_size(U) =:= Cw * Ch andalso
             byte_size(V) =:= Cw * Ch,
     case Fits of
-        true -> encode1(Raw, encoder(W, H, control(Raw, St0)));
-        false -> {error, {bad_raw_picture, describe(Raw)}}
+        true -> encode1(Raw, encoder(W, H, raw_control(Raw, St0)));
+        false -> {error, {bad_raw_picture, describe(Raw)}, St0}
     end;
 encode(#{} = Raw, St0) when not is_map_key(y, Raw), not is_map_key(format, Raw) ->
-    case apply_bitrate(control(Raw, St0)) of
+    case apply_bitrate(raw_control(Raw, St0)) of
         {ok, #st{applied = undefined} = St} -> {ok, [], #{}, St};
         {ok, St} -> {ok, [], #{targetBitrate => St#st.applied}, St};
-        {error, _} = Error -> Error
+        {error, _, _} = Error -> Error
     end;
-encode(#{} = Raw, _St) ->
-    {error, {bad_raw_picture, describe(Raw)}};
-encode(_Raw, _St) ->
-    {error, bad_raw_picture}.
+encode(#{} = Raw, St) ->
+    {error, {bad_raw_picture, describe(Raw)}, St};
+encode(_Raw, St) ->
+    {error, bad_raw_picture, St}.
 
-encode1(_Raw, {error, _} = Error) ->
+encode1(_Raw, {error, _, _} = Error) ->
     Error;
 encode1(#{y := Y, u := U, v := V, timestamp := Ts}, {ok, St}) ->
     #st{impl = Impl, codec = Codec, encoder = {Encoder, _, _}} = St,
@@ -227,7 +259,10 @@ encode1(#{y := Y, u := U, v := V, timestamp := Ts}, {ok, St}) ->
                 force_key = false, pts = Pts, last_ts = Ts
             }};
         {error, Reason} ->
-            {error, {Codec, Reason}}
+            %% Not known to be usable any more: the next picture starts a
+            %% new encoder, with a key frame.
+            ok = Impl:encoder_close(Encoder),
+            {error, {Codec, Reason}, St#st{encoder = undefined, applied = undefined}}
     end.
 
 %% The raw map without its planes, for an error a person reads.
@@ -241,7 +276,7 @@ describe(Raw) ->
     ).
 
 %% What the raw map asks of the encoder.
-control(Raw, St0) ->
+raw_control(Raw, St0) ->
     St =
         case Raw of
             #{keyframe := true} -> St0#st{force_key = true};
@@ -255,33 +290,72 @@ control(Raw, St0) ->
 encoder(W, H, #st{encoder = {_, W, H}} = St) ->
     apply_bitrate(St);
 encoder(W, H, #st{impl = Impl, codec = Codec, opts = Opts} = St0) ->
+    St1 = close_encoder(St0),
     %% About 0.1 bit per pixel at 30 pictures per second.
     Bitrate =
-        case St0#st.bitrate of
-            undefined -> clamp(W * H * 3, St0);
+        case St1#st.bitrate of
+            undefined -> clamp(W * H * 3, St1);
             Given -> Given
         end,
+    St = St1#st{bitrate = Bitrate},
+    Target = target(St),
     Settings = maps:merge(
         maps:with([keyframe_interval, cpu_used, max_nal_size], Opts),
-        #{bitrate => Bitrate, threads => threads(W * H, St0)}
+        #{bitrate => Target, threads => threads(W * H, St)}
     ),
     case Impl:encoder_new(Codec, W, H, Settings) of
         {ok, Encoder} ->
-            {ok, St0#st{
-                encoder = {Encoder, W, H}, bitrate = Bitrate, applied = Bitrate, last_ts = undefined
-            }};
+            {ok, St#st{encoder = {Encoder, W, H}, applied = Target, last_ts = undefined}};
         {error, Reason} ->
-            {error, {Codec, Reason}}
+            {error, {Codec, Reason}, St1}
     end.
+
+%% What the encoder is given: what was asked for, within what the peer
+%% allows.
+target(#st{bitrate = Bitrate, peer_max = infinity}) -> Bitrate;
+target(#st{bitrate = Bitrate, peer_max = Max}) -> max(?FLOOR_BITRATE, min(Bitrate, Max)).
 
 apply_bitrate(#st{encoder = undefined} = St) ->
     {ok, St};
-apply_bitrate(#st{bitrate = Bitrate, applied = Bitrate} = St) ->
-    {ok, St};
-apply_bitrate(#st{impl = Impl, codec = Codec, encoder = {Encoder, _, _}, bitrate = Bitrate} = St) ->
-    case Impl:encoder_bitrate(Encoder, Bitrate) of
-        ok -> {ok, St#st{applied = Bitrate}};
-        {error, Reason} -> {error, {Codec, Reason}}
+apply_bitrate(#st{impl = Impl, codec = Codec, encoder = {Encoder, _, _}, applied = Applied} = St) ->
+    case target(St) of
+        Applied ->
+            {ok, St};
+        Target ->
+            case Impl:encoder_bitrate(Encoder, Target) of
+                ok -> {ok, St#st{applied = Target}};
+                {error, Reason} -> {error, {Codec, Reason}, St}
+            end
+    end.
+
+close_encoder(#st{encoder = undefined} = St) ->
+    St;
+close_encoder(#st{impl = Impl, encoder = {Encoder, _, _}} = St) ->
+    ok = Impl:encoder_close(Encoder),
+    St#st{encoder = undefined, applied = undefined}.
+
+%% What erlang_webrtc tells the encoder: the peer wants a key frame, the
+%% most the peer allows, what the application asks for. They take effect
+%% at the next picture.
+-spec control(webrtc_media_codec:control_event() | term(), #st{}) -> {ok, #st{}}.
+control(keyframe_request, St) ->
+    {ok, St#st{force_key = true}};
+control({target_bitrate, Bps}, St) when is_integer(Bps), Bps > 0 ->
+    {ok, St#st{bitrate = clamp(Bps, St)}};
+control({max_bitrate, infinity}, St) ->
+    {ok, St#st{peer_max = infinity}};
+control({max_bitrate, Bps}, St) when is_integer(Bps), Bps >= 0 ->
+    {ok, St#st{peer_max = Bps}};
+control(_Event, St) ->
+    {ok, St}.
+
+%% The stream ended: the codecs are destroyed now.
+-spec terminate(#st{}) -> ok.
+terminate(#st{impl = Impl, decoder = Decoder} = St) ->
+    _ = close_encoder(St),
+    case Decoder of
+        undefined -> ok;
+        _ -> Impl:decoder_close(Decoder)
     end.
 
 %% An encoder wants a presentation time that grows. It follows the RTP

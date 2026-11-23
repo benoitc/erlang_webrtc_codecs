@@ -17,6 +17,9 @@ opus_test_() ->
                 {"timestamps", fun timestamps/0},
                 {"stereo", fun stereo/0},
                 {"follows_bitrate", fun follows_bitrate/0},
+                {"control", fun control/0},
+                {"goes on after an error", fun goes_on/0},
+                {"terminate", fun terminate/0},
                 {"one_lost_frame", fun one_lost_frame/0},
                 {"two_lost_frames", fun two_lost_frames/0},
                 {"long_gap", fun long_gap/0},
@@ -225,24 +228,25 @@ garbage() ->
         lists:seq(1, 3000)
     ).
 
-%% Raw audio libopus cannot take is the application's mistake: an error.
+%% Raw audio libopus cannot take is the application's mistake: an error
+%% that leaves the plugin on.
 bad_raw() ->
     St = init([], #{}),
     ?assertMatch(
-        {error, {bad_raw_audio, #{sample_rate := 44100}}},
+        {error, {bad_raw_audio, #{sample_rate := 44100}}, _},
         ?M:encode(?P:tone(440, 20, #{sample_rate => 44100, channels => 1}, 0), St)
     ),
     ?assertMatch(
-        {error, {bad_raw_audio, #{bytes := 1440}}}, ?M:encode(?P:tone(440, 15, ?MONO, 0), St)
+        {error, {bad_raw_audio, #{bytes := 1440}}, _}, ?M:encode(?P:tone(440, 15, ?MONO, 0), St)
     ),
     ?assertMatch(
-        {error, {bad_raw_audio, _}},
+        {error, {bad_raw_audio, _}, _},
         ?M:encode((?P:tone(440, 20, ?MONO, 0))#{samples := <<1, 2, 3>>}, St)
     ),
     ?assertMatch(
-        {error, {bad_raw_audio, _}}, ?M:encode((?P:tone(440, 20, ?MONO, 0))#{format := f32}, St)
+        {error, {bad_raw_audio, _}, _}, ?M:encode((?P:tone(440, 20, ?MONO, 0))#{format := f32}, St)
     ),
-    ?assertEqual({error, bad_raw_audio}, ?M:encode(pcm, St)).
+    ?assertEqual({error, bad_raw_audio, St}, ?M:encode(pcm, St)).
 
 %% With usedtx, silence is mostly not sent, and timestamps keep counting.
 dtx() ->
@@ -312,3 +316,55 @@ bandwidth(Config) when Config < 8 -> medium;
 bandwidth(Config) when Config < 12; Config >= 20, Config < 24 -> wide;
 bandwidth(Config) when Config < 14; Config >= 24, Config < 28 -> superwide;
 bandwidth(_Config) -> full.
+
+%% What erlang_webrtc tells the encoder: the bitrate the application
+%% sets and the most the peer allows. A key frame request changes
+%% nothing.
+control() ->
+    Raw = fun(I) -> ?P:tone(440, 20, ?MONO, I * 960) end,
+    Target = fun(I, St0) ->
+        {ok, _, #{targetBitrate := T}, St} = ?M:encode(Raw(I), St0),
+        {T, St}
+    end,
+    {24000, St1} = Target(0, init([], #{bitrate => 24000})),
+    {ok, St2} = ?M:control({target_bitrate, 32000}, St1),
+    {32000, St3} = Target(1, St2),
+    {ok, St4} = ?M:control({max_bitrate, 12000}, St3),
+    {12000, St5} = Target(2, St4),
+    %% What is asked for stays under what the peer allows, and comes
+    %% back when the peer lifts its limit.
+    {ok, St6} = ?M:control({target_bitrate, 48000}, St5),
+    {12000, St7} = Target(3, St6),
+    {ok, St8} = ?M:control({max_bitrate, infinity}, St7),
+    {48000, St9} = Target(4, St8),
+    ?assertEqual({ok, St9}, ?M:control(keyframe_request, St9)),
+    ?assertEqual({ok, St9}, ?M:control({something, new}, St9)),
+    %% With no bitrate set, the limit applies to the one libopus chose,
+    %% from the first audio on, and that one comes back.
+    {Auto, _} = Target(0, init([], #{})),
+    ?assert(Auto > 12000),
+    {ok, StA} = ?M:control({max_bitrate, 12000}, init([], #{})),
+    {12000, StB} = Target(0, StA),
+    {ok, StC} = ?M:control({max_bitrate, infinity}, StB),
+    ?assertMatch({Auto, _}, Target(1, StC)),
+    %% A limit under what Opus can do gives the least it can.
+    {ok, StD} = ?M:control({max_bitrate, 0}, StC),
+    ?assertMatch({6000, _}, Target(2, StD)).
+
+%% An error of encode/2 comes with the state, and the next audio is
+%% encoded.
+goes_on() ->
+    {_, St1} = encode(2, init([], #{})),
+    {error, {bad_raw_audio, _}, St2} = ?M:encode(?P:tone(440, 15, ?MONO, 0), St1),
+    ?assertEqual(St1, St2),
+    ?assertMatch({ok, [_], _, _}, ?M:encode(?P:tone(440, 20, ?MONO, 1920), St2)).
+
+%% When the stream ends the codecs are destroyed, used or not.
+terminate() ->
+    ?assertEqual(ok, ?M:terminate(init([], #{}))),
+    {[Frame | _], Enc} = encode(2, init([], #{})),
+    {_, _, Dec} = decode([Frame], init([], #{})),
+    ?assertEqual(ok, ?M:terminate(Enc)),
+    ?assertEqual(ok, ?M:terminate(Dec)),
+    ?assertMatch({error, {opus, closed}, _}, ?M:encode(?P:tone(440, 20, ?MONO, 0), Enc)),
+    ?assertMatch({ok, [#{dropped := closed}], _, _}, ?M:decode(Frame, Dec)).

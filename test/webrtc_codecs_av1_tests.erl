@@ -45,7 +45,7 @@ implementation_test() ->
         true ->
             {[Frame], _, Enc} = ?C:encode(ctx(), 176, 144, [0], ?C:init(ctx(), #{})),
             ?assertMatch(#{implementation := <<"libaom ", _/binary>>}, ?M:info(Enc)),
-            {ok, [_], _, Dec} = ?M:decode(Frame, ?C:init(ctx(), #{})),
+            {ok, [_], _, Dec} = ?T:decode(?M, Frame, ?C:init(ctx(), #{})),
             ?assertMatch(#{implementation := <<"dav1d ", _/binary>>}, ?M:info(Dec));
         false ->
             ok
