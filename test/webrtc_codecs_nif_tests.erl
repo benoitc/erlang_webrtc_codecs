@@ -135,7 +135,8 @@ close_test_() ->
     ].
 
 %% Closing while other processes are in the codec waits for them: every
-%% call ends with a result of the codec or with `closed`, none crashes.
+%% call ends with a result of the codec or with `closed`, none raises.
+%% Each process calls until it is told the context is closed.
 close_while_used_test_() ->
     [
         {timeout, 60,
@@ -143,27 +144,32 @@ close_while_used_test_() ->
                 {ok, Context} = New(),
                 Self = self(),
                 Pids = [
-                    spawn_link(fun() ->
-                        Self !
-                            {self(), [attempt(Use, Context) || _ <- lists:seq(1, 200), Use <- Uses]}
-                    end)
+                    spawn_link(fun() -> Self ! {self(), use_until_closed(Uses, Context, [])} end)
                  || _ <- lists:seq(1, 8)
                 ],
                 timer:sleep(5),
                 ok = Nif:Close(Context),
-                Results = lists:append([
+                Raised = lists:append([
                     receive
                         {Pid, R} -> R
                     after 30000 -> error(timeout)
                     end
                  || Pid <- Pids
                 ]),
-                ?assertEqual([], [R || {raised, _} = R <- Results]),
-                ?assert(lists:member({error, closed}, Results)),
+                ?assertEqual([], Raised),
                 [?assertEqual({error, closed}, Use(Context)) || Use <- Uses]
             end}}
      || {Nif, Name, New, Close, Uses} <- contexts(), Nif:loaded()
     ].
+
+%% What raised, once a call has answered `closed`.
+use_until_closed(Uses, Context, Raised0) ->
+    Results = [attempt(Use, Context) || Use <- Uses],
+    Raised = [R || {raised, _} = R <- Results] ++ Raised0,
+    case lists:member({error, closed}, Results) of
+        true -> Raised;
+        false -> use_until_closed(Uses, Context, Raised)
+    end.
 
 attempt(Use, Context) ->
     try
