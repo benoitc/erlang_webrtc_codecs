@@ -32,28 +32,72 @@ typedef struct {
 static ErlNifResourceType *decoder_type;
 static ErlNifResourceType *encoder_type;
 
-static void decoder_dtor(ErlNifEnv *env, void *obj)
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void decoder_free(decoder_t *d)
 {
-    decoder_t *d = obj;
-    (void)env;
     if (d->dec) {
         (*d->dec)->Uninitialize(d->dec);
         WelsDestroyDecoder(d->dec);
     }
+    d->dec = NULL;
+}
+
+static void decoder_dtor(ErlNifEnv *env, void *obj)
+{
+    decoder_t *d = obj;
+    (void)env;
+    decoder_free(d);
     if (d->lock)
         enif_mutex_destroy(d->lock);
+}
+
+/* decoder_close(Decoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM decoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    decoder_t *d;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], decoder_type, (void **)&d))
+        return enif_make_badarg(env);
+    enif_mutex_lock(d->lock);
+    decoder_free(d);
+    enif_mutex_unlock(d->lock);
+    return wc_atom(env, "ok");
+}
+
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void encoder_free(encoder_t *e)
+{
+    if (e->enc) {
+        (*e->enc)->Uninitialize(e->enc);
+        WelsDestroySVCEncoder(e->enc);
+    }
+    e->enc = NULL;
 }
 
 static void encoder_dtor(ErlNifEnv *env, void *obj)
 {
     encoder_t *e = obj;
     (void)env;
-    if (e->enc) {
-        (*e->enc)->Uninitialize(e->enc);
-        WelsDestroySVCEncoder(e->enc);
-    }
+    encoder_free(e);
     if (e->lock)
         enif_mutex_destroy(e->lock);
+}
+
+/* encoder_close(Encoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM encoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    encoder_t *e;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], encoder_type, (void **)&e))
+        return enif_make_badarg(env);
+    enif_mutex_lock(e->lock);
+    encoder_free(e);
+    enif_mutex_unlock(e->lock);
+    return wc_atom(env, "ok");
 }
 
 static ERL_NIF_TERM version(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
@@ -138,7 +182,8 @@ static ERL_NIF_TERM decode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 
     list = enif_make_list(env, 0);
     memset(&info, 0, sizeof(info));
-    enif_mutex_lock(d->lock);
+    if (!WC_ENTER(d, d->dec))
+        return wc_error(env, "closed");
     state = (*d->dec)->DecodeFrameNoDelay(d->dec, data.data, (int)data.size, dst, &info);
     if (state != dsErrorFree) {
         reason = decode_reason(state);
@@ -265,7 +310,8 @@ static ERL_NIF_TERM encoder_bitrate(ErlNifEnv *env, int argc, const ERL_NIF_TERM
     memset(&info, 0, sizeof(info));
     info.iLayer = SPATIAL_LAYER_ALL;
     info.iBitrate = bitrate;
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->enc))
+        return wc_error(env, "closed");
     res = (*e->enc)->SetOption(e->enc, ENCODER_OPTION_BITRATE, &info);
     enif_mutex_unlock(e->lock);
     return res == 0 ? wc_atom(env, "ok") : wc_error(env, "invalid_param");
@@ -316,7 +362,8 @@ static ERL_NIF_TERM encode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     memset(&info, 0, sizeof(info));
 
     list = enif_make_list(env, 0);
-    enif_mutex_lock(e->lock);
+    if (!WC_ENTER(e, e->enc))
+        return wc_error(env, "closed");
     /* A key frame that was asked for and cannot be made is an error, not
      * an ordinary frame in its place. */
     res = force ? (*e->enc)->ForceIntraFrame(e->enc, true) : 0;
@@ -368,6 +415,8 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 static ErlNifFunc nif_funcs[] = {
     WC_FAULT_NIF
     {"version", 0, version, 0},
+    {"encoder_close", 1, encoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"decoder_close", 1, decoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decoder_new", 1, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"encoder_new", 3, encoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},

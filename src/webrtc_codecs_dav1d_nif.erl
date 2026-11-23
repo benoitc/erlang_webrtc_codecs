@@ -6,6 +6,7 @@
 %% and every other function raises nif_not_loaded.
 
 -export([loaded/0, version/0, fail_after/1]).
+-export([decoder_close/1]).
 -export([decoder_new/2, decode/2]).
 
 -export_type([decoder/0, reason/0]).
@@ -14,7 +15,8 @@
 
 -opaque decoder() :: reference().
 -type reason() ::
-    alloc_fail
+    closed
+    | alloc_fail
     | too_large
     | unsupported_bitstream
     | unsupported_format
@@ -49,3 +51,8 @@ decoder_new(_Threads, _MaxPixels) -> erlang:nif_error(nif_not_loaded).
 -spec decode(decoder(), binary()) ->
     {ok, [webrtc_codecs_video:planes()], non_neg_integer()} | {error, reason()}.
 decode(_Decoder, _TemporalUnit) -> erlang:nif_error(nif_not_loaded).
+
+%% Destroys the codec now instead of when the reference is collected.
+%% Calls on it then give `{error, closed}`.
+-spec decoder_close(decoder()) -> ok.
+decoder_close(_Decoder) -> erlang:nif_error(nif_not_loaded).

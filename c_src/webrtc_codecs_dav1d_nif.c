@@ -25,14 +25,36 @@ typedef struct {
 
 static ErlNifResourceType *decoder_type;
 
+/* Destroys the codec and leaves the context closed. Called with the
+ * lock held, or from the destructor. */
+static void decoder_free(decoder_t *d)
+{
+    if (d->ctx)
+        dav1d_close(&d->ctx);
+    d->ctx = NULL;
+}
+
 static void decoder_dtor(ErlNifEnv *env, void *obj)
 {
     decoder_t *d = obj;
     (void)env;
-    if (d->ctx)
-        dav1d_close(&d->ctx);
+    decoder_free(d);
     if (d->lock)
         enif_mutex_destroy(d->lock);
+}
+
+/* decoder_close(Decoder) -> ok. The calls after it give {error, closed}. */
+static ERL_NIF_TERM decoder_close(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    decoder_t *d;
+    (void)argc;
+
+    if (!enif_get_resource(env, argv[0], decoder_type, (void **)&d))
+        return enif_make_badarg(env);
+    enif_mutex_lock(d->lock);
+    decoder_free(d);
+    enif_mutex_unlock(d->lock);
+    return wc_atom(env, "ok");
 }
 
 static const char *dav1d_reason(int err)
@@ -151,7 +173,8 @@ static ERL_NIF_TERM decode(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     memcpy(buf, in.data, in.size);
 
     list = enif_make_list(env, 0);
-    enif_mutex_lock(d->lock);
+    if (!WC_ENTER(d, d->ctx))
+        return wc_error(env, "closed");
     while (!reason && data.sz > 0) {
         int sent = dav1d_send_data(d->ctx, &data);
         int got = 0;
@@ -223,6 +246,7 @@ static int upgrade(ErlNifEnv *env, void **priv, void **old_priv, ERL_NIF_TERM in
 static ErlNifFunc nif_funcs[] = {
     WC_FAULT_NIF
     {"version", 0, version, 0},
+    {"decoder_close", 1, decoder_close, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decoder_new", 2, decoder_new, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"decode", 2, decode, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };

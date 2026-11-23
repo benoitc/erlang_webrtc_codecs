@@ -67,3 +67,107 @@ constructors_test_() ->
         {Name, fun() -> ?assertMatch({ok, _}, New()) end}
      || {Nif, Name, New} <- constructors(), Nif:loaded()
     ].
+
+%% Every context with its close function and calls that reach the codec.
+contexts() ->
+    Settings = #{bitrate => 300000, threads => 1},
+    Y = binary:copy(<<128>>, 64 * 48),
+    C = binary:copy(<<128>>, 32 * 24),
+    Junk = binary:copy(<<1, 2, 3, 4, 5, 6, 7, 8>>, 8),
+    Pcm = binary:copy(<<0>>, 960 * 2 * 2),
+    Video = fun(Nif) ->
+        [
+            fun(E) -> Nif:encode(E, Y, C, C, 3000, 3000, false) end,
+            fun(E) -> Nif:encoder_bitrate(E, 200000) end
+        ]
+    end,
+    [
+        {webrtc_codecs_opus_nif, "opus decoder",
+            fun() -> webrtc_codecs_opus_nif:decoder_new(48000, 2) end, decoder_close, [
+                fun(D) -> webrtc_codecs_opus_nif:conceal(D, 960) end,
+                fun(D) -> webrtc_codecs_opus_nif:decode(D, Junk) end,
+                fun(D) -> webrtc_codecs_opus_nif:decode_fec(D, Junk, 960) end
+            ]},
+        {webrtc_codecs_opus_nif, "opus encoder",
+            fun() -> webrtc_codecs_opus_nif:encoder_new(48000, 2, voip, #{}) end, encoder_close, [
+                fun(E) -> webrtc_codecs_opus_nif:encode(E, Pcm) end,
+                fun(E) -> webrtc_codecs_opus_nif:encoder_bitrate(E) end,
+                fun(E) -> webrtc_codecs_opus_nif:encoder_set(E, #{bitrate => 32000}) end
+            ]},
+        {webrtc_codecs_vpx_nif, "vp8 decoder",
+            fun() -> webrtc_codecs_vpx_nif:decoder_new(vp8, 1, 100000) end, decoder_close, [
+                fun(D) -> webrtc_codecs_vpx_nif:decode(D, Junk) end
+            ]},
+        {webrtc_codecs_vpx_nif, "vp9 encoder",
+            fun() -> webrtc_codecs_vpx_nif:encoder_new(vp9, 64, 48, Settings) end, encoder_close,
+            Video(webrtc_codecs_vpx_nif)},
+        {webrtc_codecs_dav1d_nif, "av1 decoder",
+            fun() -> webrtc_codecs_dav1d_nif:decoder_new(1, 100000) end, decoder_close, [
+                fun(D) -> webrtc_codecs_dav1d_nif:decode(D, Junk) end
+            ]},
+        {webrtc_codecs_aom_nif, "av1 encoder",
+            fun() -> webrtc_codecs_aom_nif:encoder_new(64, 48, Settings) end, encoder_close,
+            Video(webrtc_codecs_aom_nif)},
+        {webrtc_codecs_openh264_nif, "h264 decoder",
+            fun() -> webrtc_codecs_openh264_nif:decoder_new(100000) end, decoder_close, [
+                fun(D) -> webrtc_codecs_openh264_nif:decode(D, <<0, 0, 0, 1, Junk/binary>>) end
+            ]},
+        {webrtc_codecs_openh264_nif, "h264 encoder",
+            fun() -> webrtc_codecs_openh264_nif:encoder_new(64, 48, Settings) end, encoder_close, [
+                fun(E) -> webrtc_codecs_openh264_nif:encode(E, Y, C, C, 3000, false) end,
+                fun(E) -> webrtc_codecs_openh264_nif:encoder_bitrate(E, 200000) end
+            ]}
+    ].
+
+%% A closed context answers `{error, closed}` to every call that would
+%% reach its codec, and closing it again is harmless.
+close_test_() ->
+    [
+        {Name ++ " closed", fun() ->
+            {ok, Context} = New(),
+            [?assertNotEqual({error, closed}, Use(Context)) || Use <- Uses],
+            ?assertEqual(ok, Nif:Close(Context)),
+            [?assertEqual({error, closed}, Use(Context)) || Use <- Uses],
+            ?assertEqual(ok, Nif:Close(Context)),
+            ?assertError(badarg, Nif:Close(make_ref()))
+        end}
+     || {Nif, Name, New, Close, Uses} <- contexts(), Nif:loaded()
+    ].
+
+%% Closing while other processes are in the codec waits for them: every
+%% call ends with a result of the codec or with `closed`, none crashes.
+close_while_used_test_() ->
+    [
+        {timeout, 60,
+            {Name ++ " closed while used", fun() ->
+                {ok, Context} = New(),
+                Self = self(),
+                Pids = [
+                    spawn_link(fun() ->
+                        Self !
+                            {self(), [attempt(Use, Context) || _ <- lists:seq(1, 200), Use <- Uses]}
+                    end)
+                 || _ <- lists:seq(1, 8)
+                ],
+                timer:sleep(5),
+                ok = Nif:Close(Context),
+                Results = lists:append([
+                    receive
+                        {Pid, R} -> R
+                    after 30000 -> error(timeout)
+                    end
+                 || Pid <- Pids
+                ]),
+                ?assertEqual([], [R || {raised, _} = R <- Results]),
+                ?assert(lists:member({error, closed}, Results)),
+                [?assertEqual({error, closed}, Use(Context)) || Use <- Uses]
+            end}}
+     || {Nif, Name, New, Close, Uses} <- contexts(), Nif:loaded()
+    ].
+
+attempt(Use, Context) ->
+    try
+        Use(Context)
+    catch
+        Class:Reason -> {raised, {Class, Reason}}
+    end.

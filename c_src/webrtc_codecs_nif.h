@@ -121,6 +121,13 @@ static inline ERL_NIF_TERM wc_new_ok(ErlNifEnv *env, void *obj)
     return wc_ok(env, term);
 }
 
+/* A context can be closed before it is collected (close NIFs): the codec
+ * is destroyed under the lock and the calls that come after answer
+ * {error, closed}. WC_ENTER takes the lock of a context for a call and
+ * gives 0, with the lock released, when it was closed; `alive` is read
+ * under the lock. */
+#define WC_ENTER(obj, alive) (enif_mutex_lock((obj)->lock), (alive) ? 1 : (enif_mutex_unlock((obj)->lock), 0))
+
 /* One plane of a picture as a new binary, without its padding. */
 static inline ERL_NIF_TERM wc_plane(ErlNifEnv *env, const unsigned char *src, ptrdiff_t stride, unsigned int w,
                                     unsigned int h)

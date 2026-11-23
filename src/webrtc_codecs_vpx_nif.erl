@@ -6,6 +6,7 @@
 %% and every other function raises nif_not_loaded.
 
 -export([loaded/0, version/0, fail_after/1]).
+-export([decoder_close/1, encoder_close/1]).
 -export([decoder_new/3, decode/2]).
 -export([encoder_new/4, encoder_bitrate/2, encode/7]).
 
@@ -17,7 +18,8 @@
 -opaque encoder() :: reference().
 -type codec() :: vp8 | vp9.
 -type reason() ::
-    alloc_fail
+    closed
+    | alloc_fail
     | abi_mismatch
     | incapable
     | unsupported_bitstream
@@ -78,3 +80,13 @@ encoder_bitrate(_Encoder, _Bitrate) -> erlang:nif_error(nif_not_loaded).
 -spec encode(encoder(), binary(), binary(), binary(), non_neg_integer(), pos_integer(), boolean()) ->
     {ok, [{binary(), boolean()}], non_neg_integer()} | {error, reason()}.
 encode(_Encoder, _Y, _U, _V, _Pts, _Duration, _ForceKey) -> erlang:nif_error(nif_not_loaded).
+
+%% Destroys the codec now instead of when the reference is collected.
+%% Calls on it then give `{error, closed}`.
+-spec decoder_close(decoder()) -> ok.
+decoder_close(_Decoder) -> erlang:nif_error(nif_not_loaded).
+
+%% Destroys the codec now instead of when the reference is collected.
+%% Calls on it then give `{error, closed}`.
+-spec encoder_close(encoder()) -> ok.
+encoder_close(_Encoder) -> erlang:nif_error(nif_not_loaded).
