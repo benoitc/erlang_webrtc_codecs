@@ -13,6 +13,7 @@ Everything about blocking, limits and crashes follows from where code runs.
 |---|---|---|
 | The transport process of a connection (erlang_webrtc) | The plugin's Erlang code: checks, state, statistics | A plugin that raises is turned off for its transceiver; an error it returns with its state loses one frame |
 | A dirty scheduler of the VM | The codec library, through a NIF | A defect in a library can crash the whole node |
+| The process of `webrtc_codecs_async`, when you use it | The plugin's Erlang code and its NIF calls, in place of the transport process | The process ends and the plugin is turned off |
 | An external program | FFmpeg and ffplay, for devices and files | The program ends; the node goes on |
 
 A plugin is called by erlang_webrtc inside the transport process, the one

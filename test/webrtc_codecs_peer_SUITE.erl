@@ -14,6 +14,9 @@
     h264/1,
     h264_mode_0/1,
     control/1,
+    async_vp8/1,
+    async_opus/1,
+    async_frees_transport/1,
     without_rtx/1,
     capture/1,
     capture_encoded/1
@@ -30,6 +33,9 @@ all() ->
         h264,
         h264_mode_0,
         control,
+        async_vp8,
+        async_opus,
+        async_frees_transport,
         without_rtx,
         capture,
         capture_encoded
@@ -65,7 +71,11 @@ opus(_Config) ->
 %% as many samples with the same timestamps, and both report the
 %% plugin's members. Returns the audio sent and received.
 audio(Name, Rate, Implementation, Bitrate) ->
-    Plugin = {webrtc_codecs, #{}},
+    audio(Name, Rate, Implementation, Bitrate, webrtc_codecs).
+
+%% The same through that plugin module.
+audio(Name, Rate, Implementation, Bitrate, Module) ->
+    Plugin = {Module, #{}},
     Codecs = #{
         audio => [C || #{name := N} = C <- webrtc:default_codecs(audio), N =:= Name]
     },
@@ -180,7 +190,7 @@ h264_mode_0(_Config) ->
                 (Codec) ->
                     Codec
             end,
-            video(<<"H264">>, Implementation, Implementation, Mode0, {1280, 720});
+            video(<<"H264">>, Implementation, Implementation, Mode0, {1280, 720}, webrtc_codecs);
         false ->
             {skip, "built without OpenH264"}
     end.
@@ -189,12 +199,12 @@ h264_mode_0(_Config) ->
 %% every picture, close to what was sent, and the frames encoded and
 %% decoded agree in the statistics of both.
 video(Name, Encoder, Decoder) ->
-    video(Name, Encoder, Decoder, fun(Codec) -> Codec end, {320, 240}).
+    video(Name, Encoder, Decoder, fun(Codec) -> Codec end, {320, 240}, webrtc_codecs).
 
 %% The same, the negotiated codec changed by Change first, with pictures
-%% of that size.
-video(Name, Encoder, Decoder, Change, {W, H}) ->
-    Plugin = {webrtc_codecs, #{bitrate => 400000}},
+%% of that size, through that plugin module.
+video(Name, Encoder, Decoder, Change, {W, H}, Module) ->
+    Plugin = {Module, #{bitrate => 400000}},
     Codecs = #{video => [Change(C) || C <- only(Name, webrtc:default_codecs(video))]},
     {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
     {ok, B} = webrtc:new_peer_connection(#{
@@ -311,6 +321,107 @@ control() ->
     #{targetBitrate := 250000, keyFramesEncoded := 2, framesEncoded := 20} = Outbound(),
     ok = webrtc:close(A),
     ok = webrtc:close(B).
+
+%% The codecs in a process of their own (webrtc_codecs_async): what
+%% the peers exchange and report is what the plugin gives when it runs
+%% in the transport process.
+async_vp8(_Config) ->
+    case webrtc_codecs_vpx_nif:loaded() of
+        true ->
+            Implementation = <<"libvpx ", (webrtc_codecs_vpx_nif:version())/binary>>,
+            Same = fun(Codec) -> Codec end,
+            video(<<"VP8">>, Implementation, Implementation, Same, {320, 240}, webrtc_codecs_async);
+        false ->
+            {skip, "built without libvpx"}
+    end.
+
+async_opus(_Config) ->
+    case webrtc_codecs_opus_nif:loaded() of
+        true ->
+            Version = webrtc_codecs_opus_nif:version(),
+            _ = audio(<<"opus">>, 48000, Version, 24000, webrtc_codecs_async),
+            ok;
+        false ->
+            {skip, "built without libopus"}
+    end.
+
+%% What the asynchronous plugin is for. An encoder that takes 60 ms a
+%% picture, 30 pictures a second, keeps the transport process busy all
+%% the time when it runs there: a message on a data channel of the same
+%% connection waits behind it. In a process of its own it does not.
+async_frees_transport(_Config) ->
+    Slow = #{delay => 60},
+    Inside = data_channel_delay({webrtc_codecs_slow_plugin, Slow}),
+    Outside = data_channel_delay(
+        {webrtc_codecs_async, Slow#{plugin => webrtc_codecs_slow_plugin}}
+    ),
+    ct:pal(
+        "data channel message, median delay: ~b ms with the codec in the transport process, "
+        "~b ms with it in its own",
+        [Inside, Outside]
+    ),
+    ?assert(Outside < 10),
+    ?assert(Inside > Outside + 10).
+
+send_pictures(Pc, N) ->
+    T0 = erlang:monotonic_time(millisecond),
+    Raw = #{format => raw, data => <<N:800>>, timestamp => N * 3000},
+    _ = webrtc:send_media(Pc, <<"0">>, Raw),
+    timer:sleep(max(0, 33 - (erlang:monotonic_time(millisecond) - T0))),
+    send_pictures(Pc, N + 1).
+
+%% The median time, in milliseconds, a data channel message takes from A
+%% to B while A encodes video with that plugin.
+data_channel_delay(Plugin) ->
+    Codecs = #{video => only(<<"VP8">>, webrtc:default_codecs(video))},
+    {ok, A} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, B} = webrtc:new_peer_connection(#{loopback => true, codecs => Codecs}),
+    {ok, _} = webrtc:add_transceiver(A, video, #{frames => true, codec_plugin => Plugin}),
+    _ = webrtc:create_data_channel(A, <<"probe">>, #{}),
+    ok = connect(A, B),
+    Open = fun(Pc) ->
+        [{datachannel_open, Id, _, _, _}] = collect(
+            Pc,
+            fun
+                ({datachannel_open, _, <<"probe">>, _, _}) -> true;
+                (_) -> false
+            end,
+            1,
+            10000
+        ),
+        Id
+    end,
+    Id = Open(A),
+    _ = Open(B),
+    %% Pictures come from another process, as from a capture, thirty a
+    %% second or as fast as send_media/3 takes them.
+    Sender = spawn_link(fun() -> send_pictures(A, 1) end),
+    timer:sleep(200),
+    Delays = [
+        begin
+            Sent = erlang:monotonic_time(millisecond),
+            ok = webrtc:send_data(A, Id, binary, <<N:32>>),
+            [_] = collect(
+                B,
+                fun
+                    ({channel_message, _, binary, <<M:32>>}) -> M =:= N;
+                    (_) -> false
+                end,
+                1,
+                10000
+            ),
+            Delay = erlang:monotonic_time(millisecond) - Sent,
+            %% Not in step with the encoder.
+            timer:sleep(20 + rand:uniform(60)),
+            Delay
+        end
+     || N <- lists:seq(1, 30)
+    ],
+    unlink(Sender),
+    exit(Sender, kill),
+    ok = webrtc:close(A),
+    ok = webrtc:close(B),
+    lists:nth(15, lists:sort(Delays)).
 
 %% AV1 and H.264 have no picture ID, so the frame buffer of erlang_webrtc
 %% relies on sequence numbers for them. Before erlang_webrtc 0.2.0 the

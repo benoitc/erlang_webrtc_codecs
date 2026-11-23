@@ -12,6 +12,7 @@ when you change native code.
 | Picture size, option `max_pixels` | 3840 x 2160 | The frame is dropped (`too_large`) before the library is called |
 | Encoded video frame | 8 MB | Dropped (`invalid_frame`) |
 | Opus packet | 7680 bytes | Dropped (`invalid_packet`) |
+| Frames waiting for the process of `webrtc_codecs_async`, option `max_in_flight` | 4 for video, 16 for audio | Dropped (`busy`); for video, until the next key frame |
 | Opus audio made up for lost frames | 120 ms | A longer hole is left as it is |
 | G.711 frame | 2 s | Dropped (`too_large`) |
 
@@ -32,6 +33,7 @@ The picture size is read from the media before any library sees it:
 | Limit | Value | What happens over it |
 |---|---|---|
 | Picture given to an encoder | 16384 x 16384 | `{error, {bad_raw_picture, _}}` |
+| Raw media waiting for the process of `webrtc_codecs_async`, option `max_in_flight` | 4 for video, 16 for audio | `webrtc:send_media/3` returns `{error, {encode, busy}}` |
 | Audio given to `webrtc_codecs_playback:play/2` | 1 s | `{error, bad_format}` |
 | File read by `webrtc_codecs_file` | 256 MB, option `max_bytes` | `{error, too_large}` |
 

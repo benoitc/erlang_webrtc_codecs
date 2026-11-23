@@ -4,12 +4,8 @@ This page lists what `webrtc_media_codec` in erlang_webrtc does not let a
 plugin do, and how this package works within it. You need it when you wonder
 why a plugin behaves as it does, or when you plan a change to the behaviour.
 
-Nothing is missing today for what the plugins do. One thing the behaviour
-offers is not used yet:
-
-| Offered by erlang_webrtc 0.3.0 | Here |
-|---|---|
-| A plugin that runs its codec in a process of its own and delivers later (`init/4`) | Not used: every call is synchronous, so the transport process waits for the codec. To keep it free today, run the plugin module in your own process and use `webrtc:send_frame/4` and `webrtc:report_media_stats/4` |
+Nothing is missing today for what the plugins do, and nothing the
+behaviour offers is left unused.
 
 ## What was missing before 0.3.0
 
@@ -24,6 +20,7 @@ now done through the behaviour.
 | A recoverable error | Raw media in the wrong format returns an error with the state: one picture is lost, the plugin stays on |
 | A count of frames the decoder dropped | The video plugins report `framesDropped` |
 | A callback when the transceiver stops | `terminate/1` destroys the native codecs |
+| Outputs delivered later than the call that produced them | `webrtc_codecs_async` runs a plugin in a process of its own, see [Run the codec outside the transport process](async.md) |
 
 ## Issues met in erlang_webrtc
 

@@ -131,6 +131,7 @@ ok = webrtc:send_media(Pc, Mid, #{format => s16le, sample_rate => 8000, channels
 - [G.711](docs/g711.md)
 - [Capture from a camera or a microphone](docs/capture.md)
 - [Play, show or record decoded media](docs/playback.md)
+- [Run the codec outside the transport process](docs/async.md): when a codec call is slow
 - [How it works](docs/architecture.md): what runs where, and the path of a frame
 - [Module map](docs/module-map.md): which file and which test for a behaviour
 - [Glossary](docs/glossary.md)
